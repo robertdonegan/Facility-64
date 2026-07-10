@@ -23,6 +23,9 @@ const EYE_Y = 1.6, CHEST_Y = 1.3, HIT_RADIUS = 0.75, MAX_RANGE = 60;
 const WEAPON_DMG = { pistol: 34, rifle: 16 };
 const WEAPON_ROF = { pistol: 300, rifle: 95 };   // ms, small tolerance vs client
 
+const MINE_DMG = 95, MINE_BLAST_R = 4.2, MINE_TRIGGER_R = 1.6;
+const MINE_ARM_MS = 500, MINE_PLACE_COOLDOWN_MS = 500, MAX_MINES_PER_ROOM = 24;
+
 /* ---------- custom levels ---------- */
 const LEVELS_DIR = path.join(__dirname, 'levels');
 if (!fs.existsSync(LEVELS_DIR)) fs.mkdirSync(LEVELS_DIR, { recursive: true });
@@ -100,6 +103,8 @@ class Room {
     this.gameOver = false;
     this.resetTimer = null;
     this.pickups = this.level.PICKUPS.map((p, i) => ({ ...p, idx: i, active: true, respawnAt: 0 }));
+    this.mines = [];
+    this.nextMineId = 1;
   }
 
   broadcast(obj, exceptId = null) {
@@ -127,7 +132,48 @@ class Room {
     const [x, z] = this.farSpawn();
     p.x = x; p.z = z; p.yaw = Math.atan2(-x, -z);
     p.hp = 100; p.armor = 0; p.alive = true; p.weapon = 'pistol';
+    p.owned = { pistol: true, rifle: false, mines: false };
     this.broadcast({ t: 'respawn', id: p.id, x, z, yaw: p.yaw });
+  }
+
+  /* -------- proximity mines -------- */
+  placeMine(player, x, z) {
+    if (!player.alive || this.gameOver) return;
+    if (!player.owned || !player.owned.mines) return;
+    const nowMs = Date.now();
+    if (nowMs - (player.lastMine || 0) < MINE_PLACE_COOLDOWN_MS) return;
+    x = +x; z = +z;
+    if (!isFinite(x) || !isFinite(z)) return;
+    if ((x - player.x) ** 2 + (z - player.z) ** 2 > 4) return;
+    if (this.mines.length >= MAX_MINES_PER_ROOM) return;
+    player.lastMine = nowMs;
+    const mine = { id: this.nextMineId++, ownerId: player.id, x, z, armedAt: nowMs + MINE_ARM_MS };
+    this.mines.push(mine);
+    this.broadcast({ t: 'mineArm', id: mine.id, x, z, owner: player.id });
+  }
+
+  tickMines(nowMs) {
+    if (!this.mines.length || this.gameOver) return;
+    for (let i = this.mines.length - 1; i >= 0; i--) {
+      const mn = this.mines[i];
+      if (nowMs < mn.armedAt) continue;
+      let triggered = false;
+      for (const p of this.players.values()) {
+        if (!p.alive || p.id === mn.ownerId) continue;
+        if ((p.x - mn.x) ** 2 + (p.z - mn.z) ** 2 < MINE_TRIGGER_R * MINE_TRIGGER_R) { triggered = true; break; }
+      }
+      if (!triggered) continue;
+      this.mines.splice(i, 1);
+      this.broadcast({ t: 'mineBlast', id: mn.id, x: mn.x, z: mn.z });
+      const owner = this.players.get(mn.ownerId);
+      for (const p of this.players.values()) {
+        if (!p.alive) continue;
+        const dist = Math.hypot(p.x - mn.x, p.z - mn.z);
+        if (dist > MINE_BLAST_R) continue;
+        const dmg = MINE_DMG * (1 - dist / MINE_BLAST_R);
+        if (dmg > 3) this.applyDamage(p, owner || p, dmg);
+      }
+    }
   }
 
   /* -------- authoritative shooting -------- */
@@ -220,6 +266,7 @@ class Room {
   resetMatch() {
     this.gameOver = false;
     this.pickups = this.level.PICKUPS.map((p, i) => ({ ...p, idx: i, active: true, respawnAt: 0 }));
+    this.mines = [];
     for (const p of this.players.values()) {
       p.score = 0; p.streak = 0; p.multi = 0;
       this.spawnPlayer(p);
@@ -234,6 +281,7 @@ class Room {
         this.broadcast({ t: 'pickup', idx: p.idx, active: true });
       }
     }
+    this.tickMines(nowMs);
     if (this.players.size === 0) return;
     this.broadcast({
       t: 'snap',
@@ -277,7 +325,8 @@ wss.on('connection', (ws) => {
         id: nextId++, ws, name,
         color: COLORS[(nextId - 2) % COLORS.length],
         x: 0, z: 0, yaw: 0, hp: 100, armor: 0, score: 0, streak: 0, multi: 0, lastKillAt: 0,
-        alive: false, weapon: 'pistol', lastShot: 0,
+        alive: false, weapon: 'pistol', lastShot: 0, lastMine: 0,
+        owned: { pistol: true, rifle: false, mines: false },
       };
       room.players.set(me.id, me);
       ws.send(JSON.stringify({
@@ -307,14 +356,24 @@ wss.on('connection', (ws) => {
       case 'shoot':
         room.handleShoot(me, m.d);
         break;
+      case 'switch': {
+        const w = String(m.weapon || '');
+        if (!me.owned || !me.owned[w]) break;
+        me.weapon = w;
+        break;
+      }
+      case 'placeMine':
+        room.placeMine(me, m.x, m.z);
+        break;
       case 'pickup': {
         if (!me.alive || room.gameOver) break;
         const p = room.pickups[+m.idx];
         if (!p || !p.active) break;
         if ((p.x - me.x) ** 2 + (p.z - me.z) ** 2 > 2.5) break;
-        if (p.kind === 'rifle') me.weapon = 'rifle';
+        if (p.kind === 'rifle') { me.weapon = 'rifle'; me.owned.rifle = true; }
         else if (p.kind === 'armor') { if (me.armor >= 100) break; me.armor = 100; }
-        // ammo count is client-side flavour; server just cycles the pickup
+        else if (p.kind === 'mines') { me.owned.mines = true; }
+        // ammo/mine count is client-side flavour; server just cycles the pickup
         p.active = false; p.respawnAt = Date.now() + 15000;
         room.broadcast({ t: 'pickup', idx: p.idx, active: false, by: me.id, kind: p.kind });
         break;

@@ -39,10 +39,11 @@
       { kind: 'armor', x: -32, z: -32 }, { kind: 'armor', x: 24, z: -24 },
       { kind: 'ammo', x: -24, z: 24 }, { kind: 'ammo', x: 0, z: 3.5 },
       { kind: 'ammo', x: 38, z: -38 }, { kind: 'ammo', x: -38, z: 38 },
+      { kind: 'mines', x: -30, z: 0 }, { kind: 'mines', x: 30, z: 0 },
     ],
   };
 
-  const PICKUP_KINDS = ['rifle', 'armor', 'ammo'];
+  const PICKUP_KINDS = ['rifle', 'armor', 'ammo', 'mines'];
   const LIMITS = { arenaMin: 16, arenaMax: 80, blocks: 300, spawns: 32, pickups: 32, nameLen: 16 };
 
   /* Validate untrusted level data. Returns { ok, error?, clean? } where clean

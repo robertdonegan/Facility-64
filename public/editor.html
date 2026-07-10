@@ -51,6 +51,7 @@
   <button data-tool="rifle">▬ RIFLE</button>
   <button data-tool="armor">▮ ARMOR</button>
   <button data-tool="ammo">▪ AMMO</button>
+  <button data-tool="mines">✱ MINES</button>
   <button data-tool="erase">✕ ERASE</button>
 </div>
 
@@ -123,7 +124,7 @@ function draw(){
     ctx.fillRect(W2C(x - sx/2), W2C(z - sz/2), sx*SCALE, sz*SCALE);
   }
   // pickups
-  const PICON = { rifle:['#2e2e2e','R'], armor:['#2f5fd0','A'], ammo:['#777a3a','M'] };
+  const PICON = { rifle:['#2e2e2e','R'], armor:['#2f5fd0','A'], ammo:['#777a3a','M'], mines:['#c9422f','X'] };
   for(const p of pickups){
     const [col, letter] = PICON[p.kind];
     ctx.fillStyle = col;
@@ -158,7 +159,7 @@ cv.addEventListener('mousedown', e => {
   if(tool === 'wall'){ drag = { x0:x, z0:z, x1:x, z1:z }; }
   else if(tool === 'crate'){ blocks.push([x, z, 2.2, 2.2, 2.2, 'crate']); }
   else if(tool === 'spawn'){ spawns.push([clampIn(x), clampIn(z)]); }
-  else if(tool === 'rifle' || tool === 'armor' || tool === 'ammo'){ pickups.push({ kind: tool, x: clampIn(x), z: clampIn(z) }); }
+  else if(tool === 'rifle' || tool === 'armor' || tool === 'ammo' || tool === 'mines'){ pickups.push({ kind: tool, x: clampIn(x), z: clampIn(z) }); }
   else if(tool === 'erase'){ eraseAt(x, z); }
   draw();
 });

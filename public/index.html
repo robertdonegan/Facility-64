@@ -113,7 +113,7 @@
   <a id="editorLink" href="/editor.html" target="_blank">OPEN LEVEL EDITOR →</a>
   <div id="connStatus"></div>
   <div class="menu-note">
-    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br><br>
+    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-3 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br><br>
     EVERYONE ON THIS SERVER SHARES ONE ARENA. FIRST TO 10 ELIMINATIONS WINS THE ROUND.
   </div>
 </div>
@@ -228,11 +228,36 @@ function makePickupMesh(kind){
     mag.position.y = -.25; mesh.add(mag);
   } else if(kind === 'armor'){
     mesh = new THREE.Mesh(new THREE.BoxGeometry(.9,1,.35), new THREE.MeshLambertMaterial({ color:0x2f5fd0 }));
+  } else if(kind === 'mines'){
+    mesh = new THREE.Mesh(new THREE.CylinderGeometry(.35,.4,.18,10), new THREE.MeshLambertMaterial({ color:0x8a2f2f }));
   } else {
     mesh = new THREE.Mesh(new THREE.BoxGeometry(.6,.4,.6), new THREE.MeshLambertMaterial({ color:0x777a3a }));
   }
   return mesh;
 }
+function makeMineMesh(){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(.28,.32,.14,10), new THREE.MeshLambertMaterial({ color:0x2b2b2b }));
+  g.add(body);
+  const led = new THREE.Mesh(new THREE.SphereGeometry(.05,6,6), new THREE.MeshBasicMaterial({ color:0xff2a2a }));
+  led.position.y = .09; g.add(led);
+  g.userData.led = led; g.userData.blink = 0;
+  return g;
+}
+function spawnBlastFX(x, z){
+  const flash = new THREE.Mesh(new THREE.SphereGeometry(0.4,8,8), new THREE.MeshBasicMaterial({ color:0xffb84a, transparent:true, opacity:0.9 }));
+  flash.position.set(x, .6, z);
+  scene.add(flash);
+  const start = performance.now();
+  (function anim(){
+    const t = (performance.now()-start)/380;
+    if(t >= 1){ scene.remove(flash); return; }
+    flash.scale.setScalar(1 + t*9);
+    flash.material.opacity = 0.9*(1-t);
+    requestAnimationFrame(anim);
+  })();
+}
+const mineMeshes = new Map(); // id -> mesh
 
 function buildLevel(data){
   LEVELINST = LEVEL.makeLevel(data);
@@ -277,14 +302,23 @@ buildLevel(LEVEL.DEFAULT_LEVEL_DATA);
 
 /* ================= WEAPONS ================= */
 const WEAPONS = {
-  pistol: { name:'P9 SILENCED', rof:320, mag:7,  reserve:49, auto:false, spread:0.012, reload:1100, snd:[0.14,0.06,1400] },
-  rifle:  { name:'K74 RIFLE',   rof:105, mag:30, reserve:90, auto:true,  spread:0.03,  reload:1500, snd:[0.3,0.1,700] },
+  pistol: { name:'P9 SILENCED',       rof:320, mag:7,  reserve:49, auto:false, spread:0.012, reload:1100, snd:[0.14,0.06,1400] },
+  rifle:  { name:'K74 RIFLE',         rof:105, mag:30, reserve:90, auto:true,  spread:0.03,  reload:1500, snd:[0.3,0.1,700] },
+  mines:  { name:'M7 PROXIMITY MINE', rof:650, mag:2,  reserve:0,  auto:false, spread:0,     reload:0,    isMine:true, cap:5, snd:[0.22,0.08,220] },
 };
+const WEAPON_ORDER = ['pistol','rifle','mines'];
 
 /* ================= LOCAL PLAYER ================= */
 const me = {
   id:null, name:'AGENT', x:0, z:0, yaw:0, pitch:0, hp:100, armor:0, score:0, alive:false,
-  weapon:'pistol', mag:7, reserve:49, lastShot:0, reloading:false, bob:0,
+  weapon:'pistol',
+  owned: { pistol:true, rifle:false, mines:false },
+  ammo: {
+    pistol:{ mag:WEAPONS.pistol.mag, reserve:WEAPONS.pistol.reserve },
+    rifle:{ mag:0, reserve:0 },
+    mines:{ mag:0, reserve:0 },
+  },
+  lastShot:0, reloading:false, bob:0,
 };
 let winScore = 10;
 
@@ -371,6 +405,8 @@ function connect(name, room, level){
     connStatus.textContent = 'CONNECTION LOST — SERVER OFFLINE?';
     for(const r of remotes.values()) scene.remove(r.mesh);
     remotes.clear();
+    for(const mesh of mineMeshes.values()) scene.remove(mesh);
+    mineMeshes.clear();
   };
   ws.onerror = () => { connStatus.textContent = 'COULD NOT REACH SERVER'; };
   ws.onmessage = (ev) => {
@@ -420,7 +456,14 @@ function handleMsg(m){
       if(m.id === me.id){
         me.x = m.x; me.z = m.z; me.yaw = m.yaw; me.pitch = 0;
         me.hp = 100; me.armor = 0; me.alive = true;
-        me.weapon = 'pistol'; me.mag = WEAPONS.pistol.mag; me.reserve = WEAPONS.pistol.reserve; me.reloading = false;
+        me.weapon = 'pistol';
+        me.owned = { pistol:true, rifle:false, mines:false };
+        me.ammo = {
+          pistol:{ mag:WEAPONS.pistol.mag, reserve:WEAPONS.pistol.reserve },
+          rifle:{ mag:0, reserve:0 },
+          mines:{ mag:0, reserve:0 },
+        };
+        me.reloading = false;
         document.getElementById('deadNotice').style.display = 'none';
         updateHUD();
       } else {
@@ -469,14 +512,36 @@ function handleMsg(m){
       if(!m.active && m.by === me.id){
         const kind = m.kind;
         if(kind === 'rifle'){
-          if(me.weapon === 'rifle'){ me.reserve = Math.min(150, me.reserve + 30); }
-          else { me.weapon = 'rifle'; me.mag = WEAPONS.rifle.mag; me.reserve = WEAPONS.rifle.reserve; me.reloading = false; }
+          if(me.owned.rifle){ me.ammo.rifle.reserve = Math.min(150, me.ammo.rifle.reserve + 30); }
+          else {
+            me.owned.rifle = true; me.weapon = 'rifle';
+            me.ammo.rifle = { mag:WEAPONS.rifle.mag, reserve:WEAPONS.rifle.reserve };
+            me.reloading = false;
+          }
         } else if(kind === 'ammo'){
-          me.reserve = Math.min(150, me.reserve + (me.weapon === 'rifle' ? 30 : 14));
+          const target = me.weapon === 'mines' ? 'pistol' : me.weapon;
+          me.ammo[target].reserve = Math.min(150, me.ammo[target].reserve + (target === 'rifle' ? 30 : 14));
+        } else if(kind === 'mines'){
+          if(!me.owned.mines){ me.owned.mines = true; me.ammo.mines.mag = WEAPONS.mines.mag; }
+          else { me.ammo.mines.mag = Math.min(WEAPONS.mines.cap, me.ammo.mines.mag + 2); }
         }
         pickupSound(); updateHUD();
       }
       break;
+    case 'mineArm': {
+      const mesh = makeMineMesh();
+      mesh.position.set(m.x, .1, m.z);
+      scene.add(mesh);
+      mineMeshes.set(m.id, mesh);
+      break;
+    }
+    case 'mineBlast': {
+      const mesh = mineMeshes.get(m.id);
+      if(mesh){ scene.remove(mesh); mineMeshes.delete(m.id); }
+      spawnBlastFX(m.x, m.z);
+      shotSound(0.35, 0.25, 140);
+      break;
+    }
     case 'joined': feedSys(`${m.name} ENTERED THE ARENA`); break;
     case 'left':   feedSys(`${m.name} LEFT THE ARENA`); break;
     case 'gameOver': {
@@ -504,6 +569,8 @@ function handleMsg(m){
     case 'reset':
       pickupActive = m.pickups.slice();
       pickupActive.forEach((a,i)=> pickupMeshes[i].visible = a);
+      for(const mesh of mineMeshes.values()) scene.remove(mesh);
+      mineMeshes.clear();
       document.getElementById('endMenu').style.display = 'none';
       document.getElementById('hud').style.display = 'block';
       document.getElementById('killfeed').innerHTML = '';
@@ -552,11 +619,13 @@ function updateHUD(){
   document.getElementById('healthFill').style.width = Math.max(0,me.hp) + '%';
   document.getElementById('armorFill').style.width = Math.max(0,me.armor) + '%';
   const w = WEAPONS[me.weapon];
+  const a = me.ammo[me.weapon];
   document.getElementById('weaponName').textContent = w.name;
-  document.getElementById('ammoCount').textContent = `${me.mag} | ${me.reserve}`;
+  document.getElementById('ammoCount').textContent = w.isMine ? `${a.mag} ARMED` : `${a.mag} | ${a.reserve}`;
   const rh = document.getElementById('reloadHint');
-  if(me.reloading){ rh.textContent='RELOADING...'; rh.style.visibility='visible'; }
-  else if(me.mag <= 2 && me.reserve > 0){ rh.textContent='PRESS R TO RELOAD'; rh.style.visibility='visible'; }
+  if(w.isMine) rh.style.visibility='hidden';
+  else if(me.reloading){ rh.textContent='RELOADING...'; rh.style.visibility='visible'; }
+  else if(a.mag <= 2 && a.reserve > 0){ rh.textContent='PRESS R TO RELOAD'; rh.style.visibility='visible'; }
   else rh.style.visibility='hidden';
   let strip = `FIRST TO ${winScore}`;
   const others = latestBoard.filter(e => e.id !== me.id);
@@ -577,10 +646,21 @@ let paused = true, started = false;
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if(e.code === 'KeyR') startReload();
+  if(e.code === 'Digit1') trySwitchWeapon('pistol');
+  if(e.code === 'Digit2') trySwitchWeapon('rifle');
+  if(e.code === 'Digit3') trySwitchWeapon('mines');
 });
 addEventListener('keyup', e => keys[e.code] = false);
 addEventListener('mousedown', e => { if(document.pointerLockElement === canvas && e.button === 0){ mouseDown = true; fire(); } });
 addEventListener('mouseup', () => mouseDown = false);
+addEventListener('wheel', e => {
+  if(document.pointerLockElement !== canvas || !started || !me.alive) return;
+  const order = WEAPON_ORDER.filter(w => me.owned[w]);
+  if(order.length < 2) return;
+  const i = order.indexOf(me.weapon);
+  const dir = e.deltaY > 0 ? 1 : -1;
+  trySwitchWeapon(order[(i + dir + order.length) % order.length]);
+});
 addEventListener('mousemove', e => {
   if(document.pointerLockElement !== canvas) return;
   me.yaw   -= e.movementX * 0.0022;
@@ -631,21 +711,34 @@ let gunKick = 0;
 
 function startReload(){
   const w = WEAPONS[me.weapon];
-  if(me.reloading || me.mag >= w.mag || me.reserve <= 0 || !me.alive) return;
+  if(w.isMine) return;
+  const a = me.ammo[me.weapon];
+  if(me.reloading || a.mag >= w.mag || a.reserve <= 0 || !me.alive) return;
   me.reloading = true;
   updateHUD();
   setTimeout(() => {
-    const take = Math.min(w.mag - me.mag, me.reserve);
-    me.mag += take; me.reserve -= take; me.reloading = false;
+    const take = Math.min(w.mag - a.mag, a.reserve);
+    a.mag += take; a.reserve -= take; me.reloading = false;
     updateHUD();
   }, w.reload);
 }
 function fire(){
   if(paused || !started || !me.alive || me.reloading) return;
   const w = WEAPONS[me.weapon];
+  const a = me.ammo[me.weapon];
   if(now - me.lastShot < w.rof) return;
-  if(me.mag <= 0){ startReload(); return; }
-  me.lastShot = now; me.mag--; gunKick = 1;
+
+  if(w.isMine){
+    if(a.mag <= 0) return;
+    me.lastShot = now; a.mag--;
+    shotSound(...w.snd);
+    send({ t:'placeMine', x:+me.x.toFixed(2), z:+me.z.toFixed(2) });
+    updateHUD();
+    return;
+  }
+
+  if(a.mag <= 0){ startReload(); return; }
+  me.lastShot = now; a.mag--; gunKick = 1;
   shotSound(...w.snd);
   const f = gunGroup.userData.flash; f.visible = true; setTimeout(()=>f.visible=false, 45);
 
@@ -660,7 +753,13 @@ function fire(){
   send({ t:'shoot', d:[+dir.x.toFixed(4), +dir.y.toFixed(4), +dir.z.toFixed(4)] });
 
   updateHUD();
-  if(me.mag === 0) startReload();
+  if(a.mag === 0) startReload();
+}
+function trySwitchWeapon(w){
+  if(!started || !me.alive || me.weapon === w || !me.owned[w]) return;
+  me.weapon = w; me.reloading = false;
+  send({ t:'switch', weapon:w });
+  updateHUD();
 }
 
 /* ================= PICKUP CHECK ================= */
@@ -775,6 +874,11 @@ function loop(){
       m.userData.spin += dt*2;
       m.rotation.y = m.userData.spin;
       m.position.y = 1 + Math.sin(m.userData.spin*1.5)*.12;
+    });
+    // armed mines blink
+    mineMeshes.forEach(mesh => {
+      mesh.userData.blink += dt*7;
+      mesh.userData.led.visible = Math.sin(mesh.userData.blink) > 0;
     });
     gunKick = Math.max(0, gunKick - dt*8);
   }
