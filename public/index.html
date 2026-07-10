@@ -151,7 +151,8 @@ function fitRenderer(){
   camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
 }
 addEventListener('resize', fitRenderer);
-scene.add(new THREE.AmbientLight(0x8a9a7a, 0.65));
+const ambientLight = new THREE.AmbientLight(0x8a9a7a, 0.65);
+scene.add(ambientLight);
 const sun = new THREE.DirectionalLight(0xfff2cc, 0.55);
 sun.position.set(20, 40, 10); scene.add(sun);
 
@@ -189,28 +190,97 @@ const makeTex = (draw, w=64, h=64) => {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
 };
-const wallTex = makeTex((g,w,h)=>{
-  g.fillStyle='#5c6b58'; g.fillRect(0,0,w,h);
-  g.fillStyle='#4d5a4a';
-  for(let y=0;y<h;y+=16) for(let x=0;x<w;x+=32){
-    const off = (y/16)%2 ? 16 : 0;
-    g.fillRect(x+off,y, 30, 14);
-  }
-  g.strokeStyle='#3a4538'; g.lineWidth=2;
-  for(let y=0;y<=h;y+=16){ g.beginPath(); g.moveTo(0,y); g.lineTo(w,y); g.stroke(); }
-});
-const floorTex = makeTex((g,w,h)=>{
-  g.fillStyle='#39423a'; g.fillRect(0,0,w,h);
-  g.strokeStyle='#2b332c'; g.lineWidth=2;
-  for(let i=0;i<=w;i+=16){ g.beginPath(); g.moveTo(i,0); g.lineTo(i,h); g.stroke(); g.beginPath(); g.moveTo(0,i); g.lineTo(w,i); g.stroke(); }
-  g.fillStyle='#434f42'; g.fillRect(2,2,12,12); g.fillRect(34,34,12,12);
-});
 const crateTex = makeTex((g,w,h)=>{
   g.fillStyle='#7a6134'; g.fillRect(0,0,w,h);
   g.strokeStyle='#4f3d1d'; g.lineWidth=4; g.strokeRect(2,2,w-4,h-4);
   g.beginPath(); g.moveTo(2,2); g.lineTo(w-2,h-2); g.moveTo(w-2,2); g.lineTo(2,h-2); g.stroke();
 });
-floorTex.repeat.set(20,20);
+
+/* ---- terrain themes: each owns its own wall/floor textures + lighting/fog/ceiling mood ---- */
+const THEMES = {
+  facility: {
+    fog:0x0b120c, near:18, far:55, ambient:0x8a9a7a, ambientI:0.65, sun:0xfff2cc, sunI:0.55,
+    hasCeiling:true, ceiling:0x222a22,
+    wall: makeTex((g,w,h)=>{
+      g.fillStyle='#5c6b58'; g.fillRect(0,0,w,h);
+      g.fillStyle='#4d5a4a';
+      for(let y=0;y<h;y+=16) for(let x=0;x<w;x+=32){ const off=(y/16)%2?16:0; g.fillRect(x+off,y,30,14); }
+      g.strokeStyle='#3a4538'; g.lineWidth=2;
+      for(let y=0;y<=h;y+=16){ g.beginPath(); g.moveTo(0,y); g.lineTo(w,y); g.stroke(); }
+    }),
+    floor: makeTex((g,w,h)=>{
+      g.fillStyle='#39423a'; g.fillRect(0,0,w,h);
+      g.strokeStyle='#2b332c'; g.lineWidth=2;
+      for(let i=0;i<=w;i+=16){ g.beginPath(); g.moveTo(i,0); g.lineTo(i,h); g.stroke(); g.beginPath(); g.moveTo(0,i); g.lineTo(w,i); g.stroke(); }
+      g.fillStyle='#434f42'; g.fillRect(2,2,12,12); g.fillRect(34,34,12,12);
+    }),
+  },
+  jungle: {
+    fog:0x1c2e14, near:12, far:42, ambient:0x9fcf7a, ambientI:0.55, sun:0xd7e8a0, sunI:0.6,
+    hasCeiling:true, ceiling:0x14200e,
+    wall: makeTex((g,w,h)=>{
+      g.fillStyle='#5a5142'; g.fillRect(0,0,w,h);
+      g.fillStyle='#3f5c2e';
+      for(let i=0;i<26;i++){ g.beginPath(); g.arc(Math.random()*w, Math.random()*h, 4+Math.random()*6, 0, 7); g.fill(); }
+      g.strokeStyle='#25381c'; g.lineWidth=2;
+      for(let y=0;y<=h;y+=16){ g.beginPath(); g.moveTo(0,y); g.lineTo(w,y); g.stroke(); }
+    }),
+    floor: makeTex((g,w,h)=>{
+      g.fillStyle='#33502a'; g.fillRect(0,0,w,h);
+      g.fillStyle='#3f6033';
+      for(let i=0;i<40;i++) g.fillRect(Math.random()*w, Math.random()*h, 3, 3);
+      g.fillStyle='#2a4020';
+      for(let i=0;i<14;i++) g.fillRect(Math.random()*w, Math.random()*h, 6, 6);
+    }),
+  },
+  office: {
+    fog:0x9aa2ab, near:22, far:60, ambient:0xe8ecf0, ambientI:0.85, sun:0xffffff, sunI:0.45,
+    hasCeiling:true, ceiling:0xd8dce0,
+    wall: makeTex((g,w,h)=>{
+      g.fillStyle='#c9c7bd'; g.fillRect(0,0,w,h);
+      g.strokeStyle='#a8a89f'; g.lineWidth=1;
+      for(let x=0;x<=w;x+=16){ g.beginPath(); g.moveTo(x,0); g.lineTo(x,h); g.stroke(); }
+      g.fillStyle='#8fb0c9'; g.fillRect(w*0.3,h*0.25,w*0.4,h*0.3);
+      g.strokeStyle='#6b6e73'; g.lineWidth=2; g.strokeRect(w*0.3,h*0.25,w*0.4,h*0.3);
+    }),
+    floor: makeTex((g,w,h)=>{
+      g.fillStyle='#7d8792'; g.fillRect(0,0,w,h);
+      g.strokeStyle='#666e78'; g.lineWidth=1;
+      for(let i=0;i<=w;i+=8){ g.beginPath(); g.moveTo(i,0); g.lineTo(i,h); g.stroke(); g.beginPath(); g.moveTo(0,i); g.lineTo(w,i); g.stroke(); }
+    }),
+  },
+  church: {
+    fog:0x201a12, near:14, far:46, ambient:0xd8b878, ambientI:0.4, sun:0xffcf8a, sunI:0.5,
+    hasCeiling:true, ceiling:0x1c150e,
+    wall: makeTex((g,w,h)=>{
+      g.fillStyle='#6e6152'; g.fillRect(0,0,w,h);
+      g.strokeStyle='#443a2c'; g.lineWidth=2;
+      for(let y=0;y<h;y+=12){ const off=(y/12)%2?12:0; for(let x=off;x<w;x+=24){ g.strokeRect(x,y,24,12); } }
+    }),
+    floor: makeTex((g,w,h)=>{
+      g.fillStyle='#4a4032'; g.fillRect(0,0,w,h);
+      g.strokeStyle='#332b20'; g.lineWidth=2;
+      for(let i=0;i<=w;i+=21){ g.beginPath(); g.moveTo(i,0); g.lineTo(i,h); g.stroke(); g.beginPath(); g.moveTo(0,i); g.lineTo(w,i); g.stroke(); }
+    }),
+  },
+  rooftop: {
+    fog:0x8fa8c9, near:24, far:65, ambient:0xfff2d8, ambientI:0.95, sun:0xffe9b0, sunI:0.75,
+    hasCeiling:false, ceiling:0x8fa8c9,
+    wall: makeTex((g,w,h)=>{
+      g.fillStyle='#7a3327'; g.fillRect(0,0,w,h);
+      g.fillStyle='#6a2b20';
+      for(let y=0;y<h;y+=10) for(let x=0;x<w;x+=20){ const off=(y/10)%2?10:0; g.fillRect(x+off,y,18,8); }
+      g.strokeStyle='#4e2018'; g.lineWidth=1;
+      for(let y=0;y<=h;y+=10){ g.beginPath(); g.moveTo(0,y); g.lineTo(w,y); g.stroke(); }
+    }),
+    floor: makeTex((g,w,h)=>{
+      g.fillStyle='#8a8f93'; g.fillRect(0,0,w,h);
+      g.strokeStyle='#6f7478'; g.lineWidth=2;
+      for(let i=0;i<=w;i+=32){ g.beginPath(); g.moveTo(i,0); g.lineTo(i,h); g.stroke(); g.beginPath(); g.moveTo(0,i); g.lineTo(w,i); g.stroke(); }
+    }),
+  },
+};
+for(const key in THEMES) THEMES[key].floor.repeat.set(20,20);
 
 /* ---- dynamic level: rebuilt from whatever level data the server sends ---- */
 let LEVELINST = LEVEL.makeLevel(LEVEL.DEFAULT_LEVEL_DATA);
@@ -264,15 +334,23 @@ function buildLevel(data){
   if(levelGroup) scene.remove(levelGroup);
   levelGroup = new THREE.Group();
   const A = LEVELINST.ARENA;
+  const TH = THEMES[LEVELINST.theme] || THEMES.facility;
 
-  floorTex.repeat.set(Math.max(6, Math.round(A/2.2)), Math.max(6, Math.round(A/2.2)));
-  const floorMesh = new THREE.Mesh(new THREE.PlaneGeometry(A*2, A*2), new THREE.MeshLambertMaterial({ map:floorTex }));
+  scene.background = new THREE.Color(TH.fog);
+  scene.fog = new THREE.Fog(TH.fog, TH.near, TH.far);
+  ambientLight.color.setHex(TH.ambient); ambientLight.intensity = TH.ambientI;
+  sun.color.setHex(TH.sun); sun.intensity = TH.sunI;
+
+  TH.floor.repeat.set(Math.max(6, Math.round(A/2.2)), Math.max(6, Math.round(A/2.2)));
+  const floorMesh = new THREE.Mesh(new THREE.PlaneGeometry(A*2, A*2), new THREE.MeshLambertMaterial({ map:TH.floor }));
   floorMesh.rotation.x = -Math.PI/2; levelGroup.add(floorMesh);
-  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(A*2, A*2), new THREE.MeshLambertMaterial({ color:0x222a22 }));
-  ceil.rotation.x = Math.PI/2; ceil.position.y = 5; levelGroup.add(ceil);
+  if(TH.hasCeiling){
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(A*2, A*2), new THREE.MeshLambertMaterial({ color:TH.ceiling }));
+    ceil.rotation.x = Math.PI/2; ceil.position.y = 5; levelGroup.add(ceil);
+  }
 
   for(const [cx, cz, sx, sz, sy, kind] of LEVELINST.BLOCKS){
-    const tex = kind === 'crate' ? crateTex : wallTex;
+    const tex = kind === 'crate' ? crateTex : TH.wall;
     const mat = new THREE.MeshLambertMaterial({ map: tex.clone() });
     mat.map.needsUpdate = true;
     if(kind !== 'crate') mat.map.repeat.set(Math.max(1,Math.round(sx/3)), Math.max(1,Math.round(sy/3)));

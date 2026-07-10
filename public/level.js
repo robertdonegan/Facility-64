@@ -10,6 +10,7 @@
 
   const DEFAULT_LEVEL_DATA = {
     name: 'FACILITY',
+    theme: 'facility',
     arena: 44,
     blocks: [
       [0, 0, 12, 1.2, 5, 'wall'],
@@ -44,6 +45,7 @@
   };
 
   const PICKUP_KINDS = ['rifle', 'armor', 'ammo', 'mines'];
+  const THEMES = ['facility', 'jungle', 'office', 'church', 'rooftop'];
   const LIMITS = { arenaMin: 16, arenaMax: 80, blocks: 300, spawns: 32, pickups: 32, nameLen: 16 };
 
   /* Validate untrusted level data. Returns { ok, error?, clean? } where clean
@@ -56,6 +58,7 @@
       return fail(`arena must be ${LIMITS.arenaMin}-${LIMITS.arenaMax}`);
     }
     const name = String(data.name || 'UNTITLED').toUpperCase().replace(/[^A-Z0-9 _-]/g, '').slice(0, LIMITS.nameLen) || 'UNTITLED';
+    const theme = THEMES.includes(data.theme) ? data.theme : 'facility';
 
     if (!Array.isArray(data.blocks) || data.blocks.length > LIMITS.blocks) return fail(`blocks must be an array of at most ${LIMITS.blocks}`);
     const blocks = [];
@@ -90,7 +93,7 @@
       pickups.push({ kind: p.kind, x, z });
     }
 
-    return { ok: true, clean: { name, arena, blocks, spawns, pickups } };
+    return { ok: true, clean: { name, arena, theme, blocks, spawns, pickups } };
   }
 
   /* Build a runnable level (perimeter walls + collision helpers) from data. */
@@ -136,10 +139,10 @@
       return false;
     }
 
-    return { name: data.name || 'UNTITLED', ARENA, BLOCKS, SPAWNS, PICKUPS, COLLIDERS, collides, segBlocked };
+    return { name: data.name || 'UNTITLED', theme: THEMES.includes(data.theme) ? data.theme : 'facility', ARENA, BLOCKS, SPAWNS, PICKUPS, COLLIDERS, collides, segBlocked };
   }
 
-  const LEVEL = { DEFAULT_LEVEL_DATA, makeLevel, validateLevel, LIMITS };
+  const LEVEL = { DEFAULT_LEVEL_DATA, makeLevel, validateLevel, LIMITS, THEMES };
   if (typeof module !== 'undefined' && module.exports) module.exports = LEVEL;
   else root.LEVEL = LEVEL;
 })(typeof self !== 'undefined' ? self : this);

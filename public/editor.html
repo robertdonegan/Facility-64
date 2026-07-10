@@ -33,6 +33,13 @@
 <div id="topbar">
   <input type="text" id="levelName" maxlength="16" placeholder="LEVEL NAME" value="MY ARENA">
   <label>ARENA <input type="number" id="arenaSize" min="16" max="80" value="44"></label>
+  <select id="themeSelect">
+    <option value="facility">FACILITY</option>
+    <option value="jungle">JUNGLE</option>
+    <option value="office">OFFICE</option>
+    <option value="church">CHURCH</option>
+    <option value="rooftop">ROOFTOP</option>
+  </select>
   <div class="divider"></div>
   <select id="serverLevels"><option>LOADING…</option></select>
   <button id="loadBtn">LOAD</button>
@@ -71,6 +78,15 @@ const ctx = cv.getContext('2d');
 const statusEl = document.getElementById('status');
 const nameEl = document.getElementById('levelName');
 const arenaEl = document.getElementById('arenaSize');
+const themeEl = document.getElementById('themeSelect');
+
+const THEME_PALETTES = {
+  facility: { bg:'#39423a', wall:'#5c6b58', wallLine:'#3a4538' },
+  jungle:   { bg:'#2c4023', wall:'#3f5c2e', wallLine:'#25381c' },
+  office:   { bg:'#c9c7bd', wall:'#8f9298', wallLine:'#6b6e73' },
+  church:   { bg:'#453c30', wall:'#6e6152', wallLine:'#443a2c' },
+  rooftop:  { bg:'#5a5f63', wall:'#7a3327', wallLine:'#4e2018' },
+};
 
 let arena = 44;
 let blocks = [];    // [cx,cz,sx,sz,sy,kind]
@@ -92,6 +108,8 @@ const W2C = v => (v + arena) * SCALE;         // world → canvas
 const C2W = v => Math.round(v / SCALE - arena); // canvas → world, snapped to 1u
 
 function draw(){
+  const pal = THEME_PALETTES[themeEl.value] || THEME_PALETTES.facility;
+  cv.style.background = pal.bg;
   ctx.clearRect(0, 0, cv.width, cv.height);
   // grid
   ctx.strokeStyle = 'rgba(0,0,0,.14)';
@@ -110,8 +128,8 @@ function draw(){
   ctx.strokeRect(2, 2, cv.width - 4, cv.height - 4);
   // blocks
   for(const [cx, cz, sx, sz, , kind] of blocks){
-    ctx.fillStyle = kind === 'crate' ? '#7a6134' : '#5c6b58';
-    ctx.strokeStyle = kind === 'crate' ? '#4f3d1d' : '#3a4538';
+    ctx.fillStyle = kind === 'crate' ? '#7a6134' : pal.wall;
+    ctx.strokeStyle = kind === 'crate' ? '#4f3d1d' : pal.wallLine;
     ctx.lineWidth = 2;
     const x = W2C(cx - sx/2), y = W2C(cz - sz/2);
     ctx.fillRect(x, y, sx*SCALE, sz*SCALE);
@@ -210,14 +228,15 @@ arenaEl.onchange = () => {
   arenaEl.value = arena;
   fitCanvas();
 };
+themeEl.onchange = () => draw();
 
 /* ---------- data in/out ---------- */
-const levelData = () => ({ name: nameEl.value || 'UNTITLED', arena, blocks, spawns, pickups });
+const levelData = () => ({ name: nameEl.value || 'UNTITLED', arena, theme: themeEl.value, blocks, spawns, pickups });
 function loadData(d){
   const v = LEVEL.validateLevel(d);
   if(!v.ok){ setStatus('INVALID LEVEL: ' + v.error, 'err'); return; }
   const c = v.clean;
-  nameEl.value = c.name; arena = c.arena; arenaEl.value = c.arena;
+  nameEl.value = c.name; arena = c.arena; arenaEl.value = c.arena; themeEl.value = c.theme;
   blocks = c.blocks; spawns = c.spawns; pickups = c.pickups;
   fitCanvas();
   setStatus(`LOADED ${c.name} — ${c.blocks.length} blocks, ${c.spawns.length} spawns, ${c.pickups.length} pickups`, 'ok');
