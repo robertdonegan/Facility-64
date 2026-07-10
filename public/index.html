@@ -55,11 +55,11 @@
   #nameInput:focus, #roomInput:focus { border-color:#c9c27f; }
   #roomInput { font-size:16px; letter-spacing:3px; }
   #roomInput::placeholder, #nameInput::placeholder { color:#5f6f4a; }
-  #levelSelect { pointer-events:auto; font-family:inherit; font-size:16px; letter-spacing:3px; color:#e8e3c0; background:rgba(0,0,0,.5); border:2px solid #7a8a5a; padding:10px 16px; width:280px; margin-bottom:14px; text-transform:uppercase; outline:none; cursor:pointer; }
-  #levelSelect:focus { border-color:#c9c27f; }
-  #levelSelect option { background:#10190f; }
-  #editorLink { pointer-events:auto; color:#7a8a5a; font-size:14px; letter-spacing:3px; margin-top:14px; text-decoration:none; border-bottom:1px dotted #7a8a5a; }
-  #editorLink:hover { color:#c9c27f; border-color:#c9c27f; }
+  #levelSelect, #musicSelect { pointer-events:auto; font-family:inherit; font-size:16px; letter-spacing:3px; color:#e8e3c0; background:rgba(0,0,0,.5); border:2px solid #7a8a5a; padding:10px 16px; width:280px; margin-bottom:14px; text-transform:uppercase; outline:none; cursor:pointer; }
+  #levelSelect:focus, #musicSelect:focus { border-color:#c9c27f; }
+  #levelSelect option, #musicSelect option { background:#10190f; }
+  #editorLink, #musicEditorLink { pointer-events:auto; color:#7a8a5a; font-size:14px; letter-spacing:3px; margin-top:14px; text-decoration:none; border-bottom:1px dotted #7a8a5a; }
+  #editorLink:hover, #musicEditorLink:hover { color:#c9c27f; border-color:#c9c27f; }
   #clickHint { position:absolute; left:50%; top:58%; transform:translateX(-50%); color:#0e150d; background:#c9c27f; font-size:20px; letter-spacing:5px; padding:10px 26px; box-shadow:4px 4px 0 rgba(0,0,0,.6); animation:blink 1.6s steps(2) infinite; }
   #announceBanner { position:absolute; left:50%; top:20%; transform:translateX(-50%); font-size:38px; letter-spacing:8px; color:#ffd75e; text-shadow:3px 3px 0 #000, 0 0 24px rgba(255,180,60,.35); opacity:0; white-space:nowrap; }
   .announce-pop { animation:announcePop 2.8s forwards; }
@@ -109,11 +109,14 @@
   <input id="nameInput" maxlength="12" placeholder="CODENAME" autocomplete="off">
   <input id="roomInput" maxlength="8" placeholder="ROOM CODE (BLANK = LOBBY)" autocomplete="off">
   <select id="levelSelect"><option value="FACILITY">MAP: FACILITY</option></select>
+  <select id="musicSelect"><option value="FACILITY THEME">MUSIC: FACILITY THEME</option></select>
   <button class="menu-btn" id="startBtn">ENTER ARENA</button>
   <a id="editorLink" href="/editor.html" target="_blank">OPEN LEVEL EDITOR →</a>
+  &nbsp;&middot;&nbsp;
+  <a id="musicEditorLink" href="/music.html" target="_blank">OPEN MUSIC EDITOR →</a>
   <div id="connStatus"></div>
   <div class="menu-note">
-    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-3 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
+    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-3 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">M</span> MUTE MUSIC &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
     PS5 / XBOX CONTROLLER: <span class="keys">STICKS</span> MOVE + LOOK &nbsp;&middot;&nbsp; <span class="keys">RT</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">LB/RB</span> SWITCH &nbsp;&middot;&nbsp; <span class="keys">X</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">L3</span> RUN &nbsp;&middot;&nbsp; <span class="keys">START</span> PAUSE<br><br>
     EVERYONE ON THIS SERVER SHARES ONE ARENA. FIRST TO 10 ELIMINATIONS WINS THE ROUND.
   </div>
@@ -133,6 +136,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="level.js"></script>
+<script src="music.js"></script>
 <script>
 /* ============================================================
    FACILITY 64 ONLINE — client
@@ -180,6 +184,28 @@ function pickupSound(){
     g.gain.setValueAtTime(0.12,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.2);
     o.connect(g).connect(ctx.destination); o.start(); o.stop(t+0.22);
   }catch(e){}
+}
+
+/* ================= IN-GAME MUSIC ================= */
+let musicGain = null, musicSeq = null, musicMuted = false;
+function startMusic(trackData){
+  stopMusic();
+  try{
+    const ctx = audio();
+    musicGain = ctx.createGain();
+    musicGain.gain.value = musicMuted ? 0 : 0.35;
+    musicGain.connect(ctx.destination);
+    musicSeq = MUSIC.createSequencer(trackData, ctx, musicGain);
+    musicSeq.start();
+  }catch(e){}
+}
+function stopMusic(){
+  if(musicSeq){ musicSeq.stop(); musicSeq = null; }
+  musicGain = null;
+}
+function toggleMusicMute(){
+  musicMuted = !musicMuted;
+  if(musicGain) musicGain.gain.value = musicMuted ? 0 : 0.35;
 }
 
 /* ================= LEVEL (geometry shared with server via level.js) ================= */
@@ -490,13 +516,13 @@ let levelName = 'FACILITY';
 let pingMs = 0, lastPingSent = 0;
 const connStatus = document.getElementById('connStatus');
 
-function connect(name, room, level){
+function connect(name, room, level, music){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}`);
   connStatus.textContent = 'CONTACTING HQ...';
   ws.onopen = () => {
     connected = true;
-    ws.send(JSON.stringify({ t:'join', name, room, level }));
+    ws.send(JSON.stringify({ t:'join', name, room, level, music }));
   };
   ws.onclose = () => {
     connected = false; joined = false;
@@ -513,6 +539,7 @@ function connect(name, room, level){
     remotes.clear();
     for(const mesh of mineMeshes.values()) scene.remove(mesh);
     mineMeshes.clear();
+    stopMusic();
   };
   ws.onerror = () => { connStatus.textContent = 'COULD NOT REACH SERVER'; };
   ws.onmessage = (ev) => {
@@ -529,6 +556,7 @@ function handleMsg(m){
       roomCode = m.room || 'LOBBY';
       levelName = m.levelName || 'FACILITY';
       if(m.level) buildLevel(m.level);
+      if(m.music) startMusic(m.music);
       try { history.replaceState(null, '', '#' + roomCode); } catch(e) {}
       document.getElementById('waitNotice').textContent =
         `NO OTHER AGENTS IN ROOM ${roomCode} — SHARE THIS PAGE'S LINK (#${roomCode}) TO START THE FIGHT`;
@@ -759,6 +787,7 @@ addEventListener('keydown', e => {
   if(e.code === 'Digit1') trySwitchWeapon('pistol');
   if(e.code === 'Digit2') trySwitchWeapon('rifle');
   if(e.code === 'Digit3') trySwitchWeapon('mines');
+  if(e.code === 'KeyM') toggleMusicMute();
 });
 addEventListener('keyup', e => keys[e.code] = false);
 addEventListener('mousedown', e => { if(document.pointerLockElement === canvas && e.button === 0){ mouseDown = true; fire(); } });
@@ -945,12 +974,22 @@ fetch('/api/levels').then(r => r.json()).then(j => {
     levelSelect.appendChild(o);
   }
 }).catch(()=>{});
+const musicSelect = document.getElementById('musicSelect');
+fetch('/api/music').then(r => r.json()).then(j => {
+  musicSelect.innerHTML = '';
+  for(const t of j.tracks){
+    const o = document.createElement('option');
+    o.value = t; o.textContent = 'MUSIC: ' + t;
+    musicSelect.appendChild(o);
+  }
+}).catch(()=>{});
 document.getElementById('startBtn').onclick = () => {
   const name = (nameInput.value || 'AGENT ' + Math.floor(Math.random()*90+10)).trim();
   const room = (roomInput.value || 'LOBBY').trim();
   const level = levelSelect.value || 'FACILITY';
+  const music = musicSelect.value || 'FACILITY THEME';
   document.getElementById('startBtn').disabled = true;
-  connect(name, room, level);
+  connect(name, room, level, music);
 };
 function enterArena(){
   document.getElementById('startBtn').disabled = false;

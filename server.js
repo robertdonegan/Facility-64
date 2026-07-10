@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const LEVEL = require('./public/level.js');
+const MUSIC = require('./public/music.js');
 
 const PORT = process.env.PORT || 8080;
 const WIN_SCORE = parseInt(process.env.WIN_SCORE || '10', 10);
@@ -49,6 +50,29 @@ function loadLevelData(name) {
   return LEVEL.DEFAULT_LEVEL_DATA;
 }
 
+/* ---------- custom music tracks ---------- */
+const MUSIC_DIR = path.join(__dirname, 'music');
+if (!fs.existsSync(MUSIC_DIR)) fs.mkdirSync(MUSIC_DIR, { recursive: true });
+
+const musicFileName = (name) =>
+  String(name || '').toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 16);
+
+function listMusic() {
+  const files = fs.readdirSync(MUSIC_DIR).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5));
+  return ['FACILITY THEME', ...files.sort()];
+}
+function loadMusicData(name) {
+  const clean = musicFileName(name);
+  if (!clean || clean === musicFileName(MUSIC.DEFAULT_TRACK.name)) return MUSIC.DEFAULT_TRACK;
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(MUSIC_DIR, clean + '.json'), 'utf8'));
+    const v = MUSIC.validateTrack(raw);
+    if (v.ok) return v.clean;
+    console.warn(`[music] ${clean} failed validation (${v.error}) — using default theme`);
+  } catch (e) { /* fall through to default */ }
+  return MUSIC.DEFAULT_TRACK;
+}
+
 /* ---------- static file server + levels API ---------- */
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.ico': 'image/x-icon' };
 const server = http.createServer((req, res) => {
@@ -79,6 +103,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url === '/api/music' && req.method === 'GET') {
+    return json(200, { tracks: listMusic() });
+  }
+  if (url.startsWith('/api/music/') && req.method === 'GET') {
+    const name = musicFileName(decodeURIComponent(url.slice('/api/music/'.length)));
+    return json(200, { name, data: loadMusicData(name) });
+  }
+  if (url === '/api/music' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 200000) { json(413, { error: 'track too large' }); req.destroy(); } });
+    req.on('end', () => {
+      let data;
+      try { data = JSON.parse(body); } catch { return json(400, { error: 'invalid JSON' }); }
+      const v = MUSIC.validateTrack(data);
+      if (!v.ok) return json(400, { error: v.error });
+      const fname = musicFileName(v.clean.name);
+      if (!fname || fname === musicFileName(MUSIC.DEFAULT_TRACK.name)) return json(400, { error: 'pick a different track name' });
+      fs.writeFileSync(path.join(MUSIC_DIR, fname + '.json'), JSON.stringify(v.clean, null, 2));
+      console.log(`[music] saved ${fname} (${v.clean.bpm} bpm, ${v.clean.steps} steps)`);
+      return json(200, { ok: true, name: fname });
+    });
+    return;
+  }
+
   let file = url === '/' ? '/index.html' : url;
   file = path.normalize(file).replace(/^(\.\.[\/\\])+/, '');
   const full = path.join(__dirname, 'public', file);
@@ -94,11 +142,13 @@ const rooms = new Map();   // code -> Room
 let nextId = 1;
 
 class Room {
-  constructor(code, levelName) {
+  constructor(code, levelName, musicName) {
     this.code = code;
     this.levelName = levelFileName(levelName) || 'FACILITY';
     this.levelData = loadLevelData(this.levelName);
     this.level = LEVEL.makeLevel(this.levelData);
+    this.musicName = musicFileName(musicName) || musicFileName(MUSIC.DEFAULT_TRACK.name);
+    this.musicData = loadMusicData(this.musicName);
     this.players = new Map();
     this.gameOver = false;
     this.resetTimer = null;
@@ -296,12 +346,12 @@ class Room {
   }
 }
 
-function getRoom(code, levelName) {
+function getRoom(code, levelName, musicName) {
   let r = rooms.get(code);
   if (!r) {
-    r = new Room(code, levelName);
+    r = new Room(code, levelName, musicName);
     rooms.set(code, r);
-    console.log(`[room ${code}] opened — map ${r.levelName}`);
+    console.log(`[room ${code}] opened — map ${r.levelName}, music ${r.musicName}`);
   }
   return r;
 }
@@ -321,7 +371,7 @@ wss.on('connection', (ws) => {
     if (m.t === 'join' && !me) {
       const name = String(m.name || 'AGENT').toUpperCase().replace(/[^A-Z0-9 _-]/g, '').slice(0, 12) || 'AGENT';
       const code = String(m.room || 'LOBBY').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'LOBBY';
-      room = getRoom(code, m.level);
+      room = getRoom(code, m.level, m.music);
       me = {
         id: nextId++, ws, name,
         color: COLORS[(nextId - 2) % COLORS.length],
@@ -333,6 +383,7 @@ wss.on('connection', (ws) => {
       ws.send(JSON.stringify({
         t: 'welcome', id: me.id, color: me.color, winScore: WIN_SCORE, room: code,
         levelName: room.levelName, level: room.levelData,
+        musicName: room.musicName, music: room.musicData,
         pickups: room.pickups.map(p => p.active),
       }));
       room.broadcast({ t: 'joined', id: me.id, name: me.name }, me.id);

@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FACILITY 64 — MUSIC EDITOR</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a110b; color:#e8e3c0; font-family:"Arial Narrow","Helvetica Neue Condensed",Impact,sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:18px; }
+  h1 { color:#c9c27f; letter-spacing:8px; font-size:30px; text-shadow:3px 3px 0 #000; margin-bottom:2px; }
+  h2 { color:#7a8a5a; letter-spacing:4px; font-size:13px; font-weight:normal; margin-bottom:14px; }
+  #topbar, #transport { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-bottom:10px; align-items:center; }
+  button, select, input[type=text], input[type=number] { font-family:inherit; letter-spacing:2px; font-size:14px; color:#e8e3c0; background:rgba(20,35,22,.85); border:2px solid #7a8a5a; padding:7px 14px; cursor:pointer; outline:none; text-transform:uppercase; }
+  input[type=text], input[type=number] { cursor:text; background:rgba(0,0,0,.5); }
+  input[type=number] { width:72px; }
+  button:hover { border-color:#c9c27f; color:#c9c27f; }
+  button.primary { border-color:#9fd05a; color:#9fd05a; }
+  button.primary:hover { background:#9fd05a; color:#10190f; }
+  button.playing { background:#9fd05a; color:#10190f; border-color:#9fd05a; }
+  #wrap { position:relative; border:3px solid #4d5a4a; box-shadow:6px 6px 0 rgba(0,0,0,.55); overflow-x:auto; max-width:96vw; }
+  canvas { display:block; background:#151b13; }
+  #status { min-height:22px; margin-top:10px; letter-spacing:2px; font-size:14px; color:#9aa87a; text-align:center; max-width:760px; }
+  #status.err { color:#ff6a5c; } #status.ok { color:#9fd05a; }
+  #help { color:#5f6f4a; font-size:12px; letter-spacing:1.5px; margin-top:8px; text-align:center; line-height:1.8; max-width:760px; }
+  a { color:#7a8a5a; }
+  .divider { width:1px; height:26px; background:#3a4538; }
+</style>
+</head>
+<body>
+<h1>MUSIC EDITOR</h1>
+<h2>FACILITY 64 — COMPOSE THE IN-GAME SOUNDTRACK</h2>
+
+<div id="topbar">
+  <input type="text" id="trackName" maxlength="16" placeholder="TRACK NAME" value="MY TRACK">
+  <label>BPM <input type="number" id="bpm" min="60" max="220" value="128"></label>
+  <select id="stepsSelect">
+    <option value="8">8 STEPS</option>
+    <option value="16" selected>16 STEPS</option>
+    <option value="32">32 STEPS</option>
+  </select>
+  <div class="divider"></div>
+  <select id="serverTracks"><option>LOADING…</option></select>
+  <button id="loadBtn">LOAD</button>
+  <div class="divider"></div>
+  <button id="newBtn">NEW</button>
+  <button id="importBtn">IMPORT</button>
+  <button id="exportBtn">EXPORT</button>
+  <button id="saveBtn" class="primary">SAVE TO SERVER</button>
+  <input type="file" id="importFile" accept=".json" style="display:none">
+</div>
+<div id="transport">
+  <button id="playBtn" class="primary">▶ PLAY</button>
+  <label>VOLUME <input type="number" id="vol" min="0" max="100" value="70" style="width:56px;"></label>
+</div>
+
+<div id="wrap"><canvas id="seq"></canvas></div>
+<div id="status">Click cells to place notes/hits. LEAD and BASS rows are a pitch grid — click a row+step to set that pitch.</div>
+<div id="help">
+  LEAD (8 pitch rows) and BASS (5 pitch rows) are monophonic — one note per step, click again to clear, click a different row to change pitch.<br>
+  KICK / SNARE / HAT are on/off hits. SAVE TO SERVER makes the track selectable from the MUSIC dropdown in the game menu.
+  <a href="/" target="_blank">OPEN GAME →</a>
+</div>
+
+<script src="music.js"></script>
+<script>
+const cv = document.getElementById('seq');
+const ctx2d = cv.getContext('2d');
+const statusEl = document.getElementById('status');
+const nameEl = document.getElementById('trackName');
+const bpmEl = document.getElementById('bpm');
+const stepsEl = document.getElementById('stepsSelect');
+const volEl = document.getElementById('vol');
+
+function setStatus(msg, cls){ statusEl.textContent = msg; statusEl.className = cls || ''; }
+
+const LEAD_SCALE = [77,75,72,70,67,65,63,60];   // top row = highest pitch
+const BASS_SCALE = [46,43,41,39,36];
+const CELL = 26;
+const ROWS = [
+  { role:'lead',  label:'LEAD',  kind:'note', scale:LEAD_SCALE, color:'#c9c27f' },
+  { role:'bass',  label:'BASS',  kind:'note', scale:BASS_SCALE, color:'#7ab0d0' },
+  { role:'kick',  label:'KICK',  kind:'hit',  color:'#ff6a5c' },
+  { role:'snare', label:'SNARE', kind:'hit',  color:'#e8b84a' },
+  { role:'hat',   label:'HAT',   kind:'hit',  color:'#9fd05a' },
+];
+const ROW_LABEL_W = 60;
+
+let track = JSON.parse(JSON.stringify(MUSIC.DEFAULT_TRACK));
+let steps = track.steps;
+
+function chan(role){ return track.channels.find(c => c.role === role); }
+
+function totalRows(){ return ROWS.reduce((n,r) => n + (r.kind==='note' ? r.scale.length : 1), 0); }
+
+function fitCanvas(){
+  cv.width = ROW_LABEL_W + steps * CELL;
+  cv.height = totalRows() * CELL + ROWS.length * 4; // small gap between instrument groups
+  draw();
+}
+
+function rowY(){
+  // returns array of {role, kind, scale, top, rowH} describing each drawn band
+  const bands = [];
+  let y = 0;
+  for(const r of ROWS){
+    const n = r.kind === 'note' ? r.scale.length : 1;
+    bands.push({ ...r, top:y, h:n*CELL });
+    y += n*CELL + 4;
+  }
+  return bands;
+}
+
+function draw(){
+  ctx2d.clearRect(0,0,cv.width,cv.height);
+  const bands = rowY();
+  for(const b of bands){
+    // label
+    ctx2d.fillStyle = '#0e150d';
+    ctx2d.fillRect(0, b.top, ROW_LABEL_W, b.h);
+    ctx2d.fillStyle = b.color;
+    ctx2d.font = 'bold 11px sans-serif';
+    ctx2d.textAlign = 'left'; ctx2d.textBaseline = 'middle';
+    ctx2d.fillText(b.label, 6, b.top + b.h/2);
+
+    const n = b.kind === 'note' ? b.scale.length : 1;
+    for(let row=0; row<n; row++){
+      const y = b.top + row*CELL;
+      for(let s=0; s<steps; s++){
+        const x = ROW_LABEL_W + s*CELL;
+        const beatBoundary = s % 4 === 0;
+        ctx2d.fillStyle = beatBoundary ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.02)';
+        ctx2d.fillRect(x, y, CELL, CELL);
+        ctx2d.strokeStyle = 'rgba(0,0,0,.4)';
+        ctx2d.strokeRect(x+.5, y+.5, CELL-1, CELL-1);
+
+        let active = false;
+        if(b.kind === 'hit') active = !!chan(b.role).hits[s];
+        else active = chan(b.role).notes[s] === b.scale[row];
+        if(active){
+          ctx2d.fillStyle = b.color;
+          ctx2d.fillRect(x+2, y+2, CELL-4, CELL-4);
+        }
+      }
+    }
+  }
+  // playhead
+  if(seqCtrl && seqCtrl.running){
+    const x = ROW_LABEL_W + seqCtrl.step * CELL;
+    ctx2d.fillStyle = 'rgba(159,208,90,.25)';
+    ctx2d.fillRect(x, 0, CELL, cv.height);
+  }
+}
+
+cv.addEventListener('click', e => {
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left) * (cv.width / r.width);
+  const py = (e.clientY - r.top) * (cv.height / r.height);
+  if(px < ROW_LABEL_W) return;
+  const s = Math.floor((px - ROW_LABEL_W) / CELL);
+  if(s < 0 || s >= steps) return;
+  const bands = rowY();
+  for(const b of bands){
+    if(py < b.top || py >= b.top + b.h) continue;
+    const n = b.kind === 'note' ? b.scale.length : 1;
+    const row = Math.floor((py - b.top) / CELL);
+    if(row < 0 || row >= n) return;
+    const ch = chan(b.role);
+    if(b.kind === 'hit') ch.hits[s] = ch.hits[s] ? 0 : 1;
+    else {
+      const pitch = b.scale[row];
+      ch.notes[s] = ch.notes[s] === pitch ? null : pitch;
+    }
+    draw();
+    return;
+  }
+});
+
+/* ---------- playback preview ---------- */
+let AC = null, masterGain = null, seqCtrl = null;
+function audioCtx(){
+  if(!AC){ AC = new (window.AudioContext||window.webkitAudioContext)(); masterGain = AC.createGain(); masterGain.connect(AC.destination); }
+  return AC;
+}
+function setVolume(){ if(masterGain) masterGain.gain.value = (+volEl.value||0)/100; }
+volEl.oninput = setVolume;
+
+document.getElementById('playBtn').onclick = () => {
+  const btn = document.getElementById('playBtn');
+  if(seqCtrl && seqCtrl.running){
+    seqCtrl.stop(); seqCtrl = null;
+    btn.textContent = '▶ PLAY'; btn.classList.remove('playing');
+    return;
+  }
+  const ctx = audioCtx(); setVolume();
+  if(ctx.state === 'suspended') ctx.resume();
+  track.bpm = Math.max(60, Math.min(220, +bpmEl.value || 128));
+  seqCtrl = MUSIC.createSequencer(track, ctx, masterGain);
+  seqCtrl.start();
+  btn.textContent = '■ STOP'; btn.classList.add('playing');
+};
+setInterval(() => { if(seqCtrl && seqCtrl.running) draw(); }, 60);
+
+/* ---------- track size changes (rebuild channel arrays, preserving overlap) ---------- */
+function resizeSteps(newSteps){
+  for(const role of MUSIC.ROLES){
+    const ch = chan(role);
+    if(ch.hits){
+      const hits = new Array(newSteps).fill(0);
+      for(let i=0;i<Math.min(steps,newSteps);i++) hits[i] = ch.hits[i];
+      ch.hits = hits;
+    } else {
+      const notes = new Array(newSteps).fill(null);
+      for(let i=0;i<Math.min(steps,newSteps);i++) notes[i] = ch.notes[i];
+      ch.notes = notes;
+    }
+  }
+  steps = track.steps = newSteps;
+  fitCanvas();
+}
+stepsEl.onchange = () => resizeSteps(+stepsEl.value);
+bpmEl.onchange = () => { track.bpm = Math.max(60, Math.min(220, +bpmEl.value || 128)); bpmEl.value = track.bpm; };
+
+/* ---------- data in/out ---------- */
+const trackData = () => ({ name: nameEl.value || 'UNTITLED', bpm: +bpmEl.value || 128, steps, channels: track.channels });
+function loadData(d){
+  const v = MUSIC.validateTrack(d);
+  if(!v.ok){ setStatus('INVALID TRACK: ' + v.error, 'err'); return; }
+  const c = v.clean;
+  track = c; steps = c.steps;
+  nameEl.value = c.name; bpmEl.value = c.bpm; stepsEl.value = c.steps;
+  fitCanvas();
+  setStatus(`LOADED ${c.name} — ${c.bpm} BPM, ${c.steps} steps`, 'ok');
+}
+
+document.getElementById('newBtn').onclick = () => {
+  track = JSON.parse(JSON.stringify(MUSIC.DEFAULT_TRACK));
+  track.channels.forEach(ch => { if(ch.hits) ch.hits = ch.hits.map(()=>0); else ch.notes = ch.notes.map(()=>null); });
+  nameEl.value = 'MY TRACK';
+  loadData(track);
+  setStatus('BLANK TRACK — start sequencing', 'ok');
+};
+document.getElementById('exportBtn').onclick = () => {
+  const blob = new Blob([JSON.stringify(trackData(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (nameEl.value || 'track').toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.json';
+  a.click();
+};
+document.getElementById('importBtn').onclick = () => document.getElementById('importFile').click();
+document.getElementById('importFile').onchange = e => {
+  const f = e.target.files[0];
+  if(!f) return;
+  f.text().then(t => { try{ loadData(JSON.parse(t)); }catch{ setStatus('IMPORT FAILED: not valid JSON', 'err'); } });
+  e.target.value = '';
+};
+document.getElementById('saveBtn').onclick = async () => {
+  const v = MUSIC.validateTrack(trackData());
+  if(!v.ok){ setStatus('CANNOT SAVE: ' + v.error, 'err'); return; }
+  try{
+    const r = await fetch('/api/music', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(v.clean) });
+    const j = await r.json();
+    if(j.ok){ setStatus(`SAVED — select "MUSIC: ${j.name}" when creating a room in the game`, 'ok'); refreshServerTracks(); }
+    else setStatus('SERVER REJECTED: ' + (j.error || 'unknown'), 'err');
+  }catch{ setStatus('SAVE FAILED — is the game server running?', 'err'); }
+};
+
+async function refreshServerTracks(){
+  const sel = document.getElementById('serverTracks');
+  try{
+    const j = await (await fetch('/api/music')).json();
+    sel.innerHTML = '';
+    for(const t of j.tracks){
+      const o = document.createElement('option');
+      o.value = o.textContent = t;
+      sel.appendChild(o);
+    }
+  }catch{ sel.innerHTML = '<option>SERVER OFFLINE</option>'; }
+}
+document.getElementById('loadBtn').onclick = async () => {
+  const name = document.getElementById('serverTracks').value;
+  try{
+    const j = await (await fetch('/api/music/' + encodeURIComponent(name))).json();
+    loadData(j.data);
+  }catch{ setStatus('LOAD FAILED', 'err'); }
+};
+
+refreshServerTracks();
+fitCanvas();
+</script>
+</body>
+</html>
