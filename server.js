@@ -290,6 +290,7 @@ class Room {
         x: +p.x.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(3),
         hp: Math.round(p.hp), armor: Math.round(p.armor),
         score: p.score, streak: p.streak || 0, alive: p.alive, mv: p.moving ? 1 : 0,
+        weapon: p.weapon,
       })),
     });
   }

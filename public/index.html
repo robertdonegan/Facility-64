@@ -335,11 +335,38 @@ function makeAgentMesh(color){
   const legR  = legL.clone(); legR.position.x = .24; g.add(legR);
   const armL  = new THREE.Mesh(new THREE.BoxGeometry(.22,.9,.32), suit); armL.position.set(-.58,1.3,0); g.add(armL);
   const armR  = armL.clone(); armR.position.set(.58,1.25,-.28); armR.rotation.x = -1.2; g.add(armR);
-  const gun   = new THREE.Mesh(new THREE.BoxGeometry(.14,.14,.8), dark); gun.position.set(.58,1.05,-.75); g.add(gun);
-  const flash = new THREE.Mesh(new THREE.BoxGeometry(.3,.3,.3), new THREE.MeshBasicMaterial({ color:0xffe08a }));
-  flash.position.set(.58,1.05,-1.2); flash.visible = false; g.add(flash);
-  g.userData.flash = flash; g.userData.legs = [legL, legR];
+
+  const wPistol = new THREE.Group();
+  const pBody = new THREE.Mesh(new THREE.BoxGeometry(.14,.14,.55), dark); pBody.position.set(.58,1.05,-.65); wPistol.add(pBody);
+  const pFlash = new THREE.Mesh(new THREE.BoxGeometry(.24,.24,.24), new THREE.MeshBasicMaterial({ color:0xffe08a }));
+  pFlash.position.set(.58,1.05,-.98); pFlash.visible = false; wPistol.add(pFlash);
+  wPistol.userData.flash = pFlash;
+
+  const wRifle = new THREE.Group();
+  const rBody = new THREE.Mesh(new THREE.BoxGeometry(.13,.14,1.05), dark); rBody.position.set(.58,1.08,-.95); wRifle.add(rBody);
+  const rStock = new THREE.Mesh(new THREE.BoxGeometry(.11,.16,.3), dark); rStock.position.set(.58,1.08,-.28); wRifle.add(rStock);
+  const rMag = new THREE.Mesh(new THREE.BoxGeometry(.1,.34,.14), dark); rMag.position.set(.58,.82,-.78); wRifle.add(rMag);
+  const rFlash = new THREE.Mesh(new THREE.BoxGeometry(.26,.26,.26), new THREE.MeshBasicMaterial({ color:0xffe08a }));
+  rFlash.position.set(.58,1.08,-1.5); rFlash.visible = false; wRifle.add(rFlash);
+  wRifle.userData.flash = rFlash; wRifle.visible = false;
+
+  const wMines = new THREE.Group();
+  const mBody = new THREE.Mesh(new THREE.CylinderGeometry(.16,.18,.1,10), new THREE.MeshLambertMaterial({ color:0x8a2f2f })); mBody.position.set(.58,1.02,-.7); wMines.add(mBody);
+  wMines.visible = false;
+
+  g.add(wPistol, wRifle, wMines);
+  g.userData.weapons = { pistol:wPistol, rifle:wRifle, mines:wMines };
+  g.userData.flash = pFlash; g.userData.legs = [legL, legR];
   return g;
+}
+function setAgentWeapon(mesh, weapon){
+  const w = mesh.userData.weapons;
+  if(!w) return;
+  const kind = w[weapon] ? weapon : 'pistol';
+  w.pistol.visible = kind === 'pistol';
+  w.rifle.visible = kind === 'rifle';
+  w.mines.visible = kind === 'mines';
+  mesh.userData.flash = w[kind].userData.flash || null;
 }
 function makeNameSprite(name){
   const c = document.createElement('canvas'); c.width = 256; c.height = 48;
@@ -365,7 +392,7 @@ function ensureRemote(p){
     const mesh = makeAgentMesh(p.color);
     mesh.add(makeNameSprite(p.name));
     scene.add(mesh);
-    r = { id:p.id, name:p.name, mesh, x:p.x, z:p.z, yaw:p.yaw, tx:p.x, tz:p.z, tyaw:p.yaw, alive:p.alive, mv:0, walkT:Math.random()*10 };
+    r = { id:p.id, name:p.name, mesh, x:p.x, z:p.z, yaw:p.yaw, tx:p.x, tz:p.z, tyaw:p.yaw, alive:p.alive, mv:0, walkT:Math.random()*10, weapon:'pistol' };
     remotes.set(p.id, r);
   }
   return r;
@@ -444,6 +471,7 @@ function handleMsg(m){
         r.alive = p.alive; r.mv = p.mv;
         r.score = p.score;
         r.mesh.visible = p.alive;
+        if(p.weapon && r.weapon !== p.weapon){ r.weapon = p.weapon; setAgentWeapon(r.mesh, p.weapon); }
       }
       for(const [id, r] of remotes){
         if(!seen.has(id)){ scene.remove(r.mesh); remotes.delete(id); }
@@ -464,6 +492,7 @@ function handleMsg(m){
           mines:{ mag:0, reserve:0 },
         };
         me.reloading = false;
+        updateGunModel();
         document.getElementById('deadNotice').style.display = 'none';
         updateHUD();
       } else {
@@ -474,7 +503,8 @@ function handleMsg(m){
     case 'shot': {
       const r = remotes.get(m.id);
       if(r){
-        const f = r.mesh.userData.flash; f.visible = true; setTimeout(()=>f.visible=false, 50);
+        const f = r.mesh.userData.flash;
+        if(f){ f.visible = true; setTimeout(()=>f.visible=false, 50); }
         const d = Math.hypot(r.x - me.x, r.z - me.z);
         shotSound(Math.max(.03, .2 - d*0.004), 0.07, 1000);
       }
@@ -517,6 +547,7 @@ function handleMsg(m){
             me.owned.rifle = true; me.weapon = 'rifle';
             me.ammo.rifle = { mag:WEAPONS.rifle.mag, reserve:WEAPONS.rifle.reserve };
             me.reloading = false;
+            updateGunModel();
           }
         } else if(kind === 'ammo'){
           const target = me.weapon === 'mines' ? 'pistol' : me.weapon;
@@ -697,14 +728,44 @@ document.addEventListener('pointerlockchange', () => {
 
 /* ================= SHOOTING (hit detection is server-side) ================= */
 const gunGroup = new THREE.Group();
+const fpWeapons = {};
 {
   const dark = new THREE.MeshLambertMaterial({ color:0x232323 });
+
+  const vPistol = new THREE.Group();
   const grip = new THREE.Mesh(new THREE.BoxGeometry(.09,.22,.14), dark); grip.position.set(.25,-.28,-.55);
   const slide = new THREE.Mesh(new THREE.BoxGeometry(.1,.1,.5), dark); slide.position.set(.25,-.16,-.75);
-  gunGroup.add(grip, slide);
-  const mflash = new THREE.Mesh(new THREE.BoxGeometry(.16,.16,.16), new THREE.MeshBasicMaterial({ color:0xffe08a }));
-  mflash.position.set(.25,-.16,-1.05); mflash.visible = false; gunGroup.add(mflash);
-  gunGroup.userData.flash = mflash;
+  vPistol.add(grip, slide);
+  const pFlash = new THREE.Mesh(new THREE.BoxGeometry(.16,.16,.16), new THREE.MeshBasicMaterial({ color:0xffe08a }));
+  pFlash.position.set(.25,-.16,-1.05); pFlash.visible = false; vPistol.add(pFlash);
+  vPistol.userData.flash = pFlash;
+
+  const vRifle = new THREE.Group();
+  const rBarrel = new THREE.Mesh(new THREE.BoxGeometry(.08,.1,.85), dark); rBarrel.position.set(.27,-.14,-1.0); vRifle.add(rBarrel);
+  const rBody = new THREE.Mesh(new THREE.BoxGeometry(.1,.16,.4), dark); rBody.position.set(.27,-.18,-.5); vRifle.add(rBody);
+  const rStock = new THREE.Mesh(new THREE.BoxGeometry(.08,.13,.28), dark); rStock.position.set(.27,-.2,-.15); vRifle.add(rStock);
+  const rMag = new THREE.Mesh(new THREE.BoxGeometry(.08,.32,.12), dark); rMag.position.set(.27,-.42,-.55); vRifle.add(rMag);
+  const rGrip = new THREE.Mesh(new THREE.BoxGeometry(.07,.2,.1), dark); rGrip.position.set(.27,-.32,-.85); vRifle.add(rGrip);
+  const rFlash = new THREE.Mesh(new THREE.BoxGeometry(.18,.18,.18), new THREE.MeshBasicMaterial({ color:0xffe08a }));
+  rFlash.position.set(.27,-.14,-1.42); rFlash.visible = false; vRifle.add(rFlash);
+  vRifle.userData.flash = rFlash; vRifle.visible = false;
+
+  const vMines = new THREE.Group();
+  const mDevice = new THREE.Mesh(new THREE.CylinderGeometry(.16,.18,.09,10), new THREE.MeshLambertMaterial({ color:0x8a2f2f }));
+  mDevice.position.set(.24,-.24,-.55); vMines.add(mDevice);
+  const mLed = new THREE.Mesh(new THREE.SphereGeometry(.03,6,6), new THREE.MeshBasicMaterial({ color:0xff2a2a }));
+  mLed.position.set(.24,-.185,-.55); vMines.add(mLed);
+  vMines.visible = false;
+
+  gunGroup.add(vPistol, vRifle, vMines);
+  fpWeapons.pistol = vPistol; fpWeapons.rifle = vRifle; fpWeapons.mines = vMines;
+  gunGroup.userData.flash = pFlash;
+}
+function updateGunModel(){
+  fpWeapons.pistol.visible = me.weapon === 'pistol';
+  fpWeapons.rifle.visible = me.weapon === 'rifle';
+  fpWeapons.mines.visible = me.weapon === 'mines';
+  gunGroup.userData.flash = fpWeapons[me.weapon].userData.flash || null;
 }
 camera.add(gunGroup); scene.add(camera);
 let gunKick = 0;
@@ -759,6 +820,7 @@ function trySwitchWeapon(w){
   if(!started || !me.alive || me.weapon === w || !me.owned[w]) return;
   me.weapon = w; me.reloading = false;
   send({ t:'switch', weapon:w });
+  updateGunModel();
   updateHUD();
 }
 
@@ -891,6 +953,7 @@ function loop(){
   renderer.render(scene, camera);
 }
 fitRenderer();
+updateGunModel();
 updateHUD();
 loop();
 
