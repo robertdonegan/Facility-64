@@ -1,0 +1,12 @@
+# Render Blueprint — deploy with: Render dashboard → New → Blueprint → select this repo
+services:
+  - type: web
+    name: facility64-online
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: WIN_SCORE
+        value: "10"

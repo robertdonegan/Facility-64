@@ -67,6 +67,33 @@ npm test
 
 Spins up the server and runs scripted matches over real sockets across two rooms, verifying: room isolation, server-validated aimed hits (exactly 3 pistol hits to kill), rejection of shots aimed away from the target, wall occlusion of perfectly-aimed shots, fire-rate limiting, DOUBLE KILL and KILLING SPREE announcements, win condition, match reset, level-API validation, and that a saved custom map's walls block server-side shots while clear lines hit. (22 assertions, all passing at ship time.)
 
+## GitHub + hosting
+
+GitHub Pages only serves static files, so it can't run the WebSocket server — host the code on GitHub and run the server on a free Node host that deploys from your repo.
+
+**1. Push to GitHub** (from this folder):
+
+```bash
+git init && git add -A && git commit -m "Facility 64 Online"
+# with the GitHub CLI:
+gh repo create facility64-online --public --source=. --push
+# or create an empty repo on github.com, then:
+git remote add origin git@github.com:YOUR_USER/facility64-online.git
+git branch -M main && git push -u origin main
+```
+
+The included GitHub Actions workflow (`.github/workflows/ci.yml`) runs the full 22-assertion test suite on every push.
+
+**2. Deploy the server from the repo** (pick one):
+
+- **Render** (free tier, easiest — a `render.yaml` blueprint is included): dashboard → **New → Blueprint** → select the repo → Apply. That's it — Render reads `render.yaml`, sets `PORT` automatically, and serves HTTPS so the client's `wss://` upgrade just works. Auto-redeploys on every push to main. (Manual alternative: New → Web Service, build `npm install`, start `npm start`.)
+- **Railway**: New Project → Deploy from GitHub repo — it detects Node and runs `npm start`. Same auto-deploy behaviour.
+- **Fly.io / anything Docker-based**: the included `Dockerfile` works as-is (`fly launch`).
+
+Share the resulting URL (plus `#ROOMCODE` for a private room) and you're playing.
+
+**Caveat — custom maps on free hosts:** most free tiers have an *ephemeral* filesystem, so maps saved via the editor to `levels/` vanish on redeploy or restart. The durable workflow: build your map, EXPORT it from the editor, commit the JSON into `levels/` in the repo, and push — it deploys with the code. (Free Render instances also sleep after idle periods; the first visitor waits ~30s for wake-up.)
+
 ## Known limitations / next steps
 
 - No lag compensation (rewind): the server raycasts against players' latest positions, so high-ping players lead their shots slightly. A rewind buffer of recent snapshots would fix this.
