@@ -113,7 +113,8 @@
   <a id="editorLink" href="/editor.html" target="_blank">OPEN LEVEL EDITOR →</a>
   <div id="connStatus"></div>
   <div class="menu-note">
-    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-3 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br><br>
+    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-3 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
+    PS5 / XBOX CONTROLLER: <span class="keys">STICKS</span> MOVE + LOOK &nbsp;&middot;&nbsp; <span class="keys">RT</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">LB/RB</span> SWITCH &nbsp;&middot;&nbsp; <span class="keys">X</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">L3</span> RUN &nbsp;&middot;&nbsp; <span class="keys">START</span> PAUSE<br><br>
     EVERYONE ON THIS SERVER SHARES ONE ARENA. FIRST TO 10 ELIMINATIONS WINS THE ROUND.
   </div>
 </div>
@@ -762,13 +763,15 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => keys[e.code] = false);
 addEventListener('mousedown', e => { if(document.pointerLockElement === canvas && e.button === 0){ mouseDown = true; fire(); } });
 addEventListener('mouseup', () => mouseDown = false);
-addEventListener('wheel', e => {
-  if(document.pointerLockElement !== canvas || !started || !me.alive) return;
+function cycleWeapon(dir){
   const order = WEAPON_ORDER.filter(w => me.owned[w]);
   if(order.length < 2) return;
   const i = order.indexOf(me.weapon);
-  const dir = e.deltaY > 0 ? 1 : -1;
   trySwitchWeapon(order[(i + dir + order.length) % order.length]);
+}
+addEventListener('wheel', e => {
+  if(document.pointerLockElement !== canvas || !started || !me.alive) return;
+  cycleWeapon(e.deltaY > 0 ? 1 : -1);
 });
 addEventListener('mousemove', e => {
   if(document.pointerLockElement !== canvas) return;
@@ -776,6 +779,21 @@ addEventListener('mousemove', e => {
   me.pitch -= e.movementY * 0.0022;
   me.pitch = Math.max(-1.35, Math.min(1.35, me.pitch));
 });
+
+/* ================= GAMEPAD (PS5 / Xbox — both expose the W3C "standard" mapping) =================
+   0 A/Cross 1 B/Circle 2 X/Square 3 Y/Triangle 4 LB/L1 5 RB/R1 6 LT/L2 7 RT/R2
+   8 Select/Share 9 Start/Options 10 L3 11 R3 · axes 0/1 left stick, 2/3 right stick */
+let gpIndex = null;
+const gpPrev = { fire:false, lb:false, rb:false, reload:false, start:false };
+addEventListener('gamepadconnected', e => { gpIndex = e.gamepad.index; });
+addEventListener('gamepaddisconnected', e => { if(gpIndex === e.gamepad.index) gpIndex = null; });
+function getPad(){
+  if(gpIndex === null || !navigator.getGamepads) return null;
+  return navigator.getGamepads()[gpIndex] || null;
+}
+const GP_DEADZONE = 0.18;
+function gpAxis(v){ return Math.abs(v) < GP_DEADZONE ? 0 : v; }
+function gpPressed(pad, i){ const b = pad.buttons[i]; return !!b && (b.pressed || b.value > 0.5); }
 function tryLock(){
   try{
     const p = canvas.requestPointerLock();
@@ -967,25 +985,58 @@ function loop(){
   last = now;
 
   if(started){
+    const pad = getPad();
+    if(pad){
+      const startBtn = gpPressed(pad, 9);
+      if(startBtn && !gpPrev.start){
+        if(document.pointerLockElement === canvas) document.exitPointerLock();
+        else if(paused) tryLock();
+      }
+      gpPrev.start = startBtn;
+    }
+
     // local movement (client predicts; server range-clamps)
     let moving = false;
     if(!paused && me.alive){
-      const SPEED = keys['ShiftLeft']||keys['ShiftRight'] ? 8.2 : 5.4;
+      const sprint = keys['ShiftLeft']||keys['ShiftRight'] || (pad && gpPressed(pad, 10));
+      const SPEED = sprint ? 8.2 : 5.4;
       let ix = 0, iz = 0;
       if(keys['KeyW']) iz -= 1;
       if(keys['KeyS']) iz += 1;
       if(keys['KeyA']) ix -= 1;
       if(keys['KeyD']) ix += 1;
-      const il = Math.hypot(ix, iz);
-      if(il > 0){
-        ix/=il; iz/=il;
+      if(ix === 0 && iz === 0 && pad){
+        ix = gpAxis(pad.axes[0]); iz = gpAxis(pad.axes[1]);
+      }
+      const mag = Math.hypot(ix, iz);
+      if(mag > 0){
+        const speedScale = Math.min(1, mag);
+        ix/=mag; iz/=mag;
         const sin = Math.sin(me.yaw), cos = Math.cos(me.yaw);
-        const dx = (ix*cos + iz*sin) * SPEED * dt;
-        const dz = (-ix*sin + iz*cos) * SPEED * dt;
+        const dx = (ix*cos + iz*sin) * SPEED * speedScale * dt;
+        const dz = (-ix*sin + iz*cos) * SPEED * speedScale * dt;
         if(!collides(me.x+dx, me.z, .55)) me.x += dx;
         if(!collides(me.x, me.z+dz, .55)) me.z += dz;
         me.bob += dt * (SPEED>6 ? 13 : 9);
         moving = true;
+      }
+      if(pad){
+        const lookX = gpAxis(pad.axes[2]), lookY = gpAxis(pad.axes[3]);
+        if(lookX || lookY){
+          me.yaw -= lookX * 2.6 * dt;
+          me.pitch -= lookY * 2.0 * dt;
+          me.pitch = Math.max(-1.35, Math.min(1.35, me.pitch));
+        }
+        const fireBtn = gpPressed(pad, 7);
+        if(fireBtn && (WEAPONS[me.weapon].auto || !gpPrev.fire)) fire();
+        gpPrev.fire = fireBtn;
+        const lb = gpPressed(pad, 4), rb = gpPressed(pad, 5);
+        if(lb && !gpPrev.lb) cycleWeapon(-1);
+        if(rb && !gpPrev.rb) cycleWeapon(1);
+        gpPrev.lb = lb; gpPrev.rb = rb;
+        const reloadBtn = gpPressed(pad, 2);
+        if(reloadBtn && !gpPrev.reload) startReload();
+        gpPrev.reload = reloadBtn;
       }
       if(mouseDown && WEAPONS[me.weapon].auto) fire();
       tryPickup();
