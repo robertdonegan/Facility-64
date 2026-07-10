@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FACILITY 64 — LEVEL EDITOR</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a110b; color:#e8e3c0; font-family:"Arial Narrow","Helvetica Neue Condensed",Impact,sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:18px; }
+  h1 { color:#c9c27f; letter-spacing:8px; font-size:30px; text-shadow:3px 3px 0 #000; margin-bottom:2px; }
+  h2 { color:#7a8a5a; letter-spacing:4px; font-size:13px; font-weight:normal; margin-bottom:14px; }
+  #topbar, #toolbar { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-bottom:10px; align-items:center; }
+  button, select, input[type=text], input[type=number] { font-family:inherit; letter-spacing:2px; font-size:14px; color:#e8e3c0; background:rgba(20,35,22,.85); border:2px solid #7a8a5a; padding:7px 14px; cursor:pointer; outline:none; text-transform:uppercase; }
+  input[type=text], input[type=number] { cursor:text; background:rgba(0,0,0,.5); }
+  input[type=number] { width:72px; }
+  button:hover { border-color:#c9c27f; color:#c9c27f; }
+  button.active { background:#c9c27f; color:#10190f; border-color:#c9c27f; }
+  button.primary { border-color:#9fd05a; color:#9fd05a; }
+  button.primary:hover { background:#9fd05a; color:#10190f; }
+  #wrap { position:relative; border:3px solid #4d5a4a; box-shadow:6px 6px 0 rgba(0,0,0,.55); }
+  canvas { display:block; background:#39423a; cursor:crosshair; }
+  #status { min-height:22px; margin-top:10px; letter-spacing:2px; font-size:14px; color:#9aa87a; text-align:center; max-width:760px; }
+  #status.err { color:#ff6a5c; } #status.ok { color:#9fd05a; }
+  #help { color:#5f6f4a; font-size:12px; letter-spacing:1.5px; margin-top:8px; text-align:center; line-height:1.8; max-width:760px; }
+  a { color:#7a8a5a; }
+  .divider { width:1px; height:26px; background:#3a4538; }
+</style>
+</head>
+<body>
+<h1>LEVEL EDITOR</h1>
+<h2>FACILITY 64 — BUILD YOUR OWN ARENA</h2>
+
+<div id="topbar">
+  <input type="text" id="levelName" maxlength="16" placeholder="LEVEL NAME" value="MY ARENA">
+  <label>ARENA <input type="number" id="arenaSize" min="16" max="80" value="44"></label>
+  <div class="divider"></div>
+  <select id="serverLevels"><option>LOADING…</option></select>
+  <button id="loadBtn">LOAD</button>
+  <div class="divider"></div>
+  <button id="newBtn">NEW</button>
+  <button id="importBtn">IMPORT</button>
+  <button id="exportBtn">EXPORT</button>
+  <button id="saveBtn" class="primary">SAVE TO SERVER</button>
+  <input type="file" id="importFile" accept=".json" style="display:none">
+</div>
+
+<div id="toolbar">
+  <button data-tool="wall" class="active">■ WALL (DRAG)</button>
+  <button data-tool="crate">▩ CRATE</button>
+  <button data-tool="spawn">◎ SPAWN</button>
+  <button data-tool="rifle">▬ RIFLE</button>
+  <button data-tool="armor">▮ ARMOR</button>
+  <button data-tool="ammo">▪ AMMO</button>
+  <button data-tool="erase">✕ ERASE</button>
+</div>
+
+<div id="wrap"><canvas id="ed"></canvas></div>
+<div id="status">Draw walls by dragging. A level needs at least 2 spawn points.</div>
+<div id="help">
+  WALL: click-drag a rectangle · CRATE / SPAWN / PICKUPS: click to place · ERASE: click an item ·
+  grid snaps to 1 unit, walls are 5 high, crates 2.2<br>
+  SAVE TO SERVER makes the map instantly selectable in the game menu — then pick it when creating a room.
+  <a href="/" target="_blank">OPEN GAME →</a>
+</div>
+
+<script src="level.js"></script>
+<script>
+const cv = document.getElementById('ed');
+const ctx = cv.getContext('2d');
+const statusEl = document.getElementById('status');
+const nameEl = document.getElementById('levelName');
+const arenaEl = document.getElementById('arenaSize');
+
+let arena = 44;
+let blocks = [];    // [cx,cz,sx,sz,sy,kind]
+let spawns = [];    // [x,z]
+let pickups = [];   // {kind,x,z}
+let tool = 'wall';
+let drag = null;    // {x0,z0,x1,z1} while drawing a wall
+let SCALE = 7;      // px per unit
+
+function setStatus(msg, cls){ statusEl.textContent = msg; statusEl.className = cls || ''; }
+
+function fitCanvas(){
+  const maxPx = Math.min(innerWidth - 40, innerHeight - 260, 640);
+  SCALE = Math.max(3, Math.floor(maxPx / (arena * 2)));
+  cv.width = cv.height = arena * 2 * SCALE;
+  draw();
+}
+const W2C = v => (v + arena) * SCALE;         // world → canvas
+const C2W = v => Math.round(v / SCALE - arena); // canvas → world, snapped to 1u
+
+function draw(){
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  // grid
+  ctx.strokeStyle = 'rgba(0,0,0,.14)';
+  ctx.lineWidth = 1;
+  for(let u = -arena; u <= arena; u += 2){
+    const p = W2C(u) + .5;
+    ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, cv.height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(cv.width, p); ctx.stroke();
+  }
+  // centre lines
+  ctx.strokeStyle = 'rgba(159,208,90,.25)';
+  ctx.beginPath(); ctx.moveTo(W2C(0), 0); ctx.lineTo(W2C(0), cv.height); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, W2C(0)); ctx.lineTo(cv.width, W2C(0)); ctx.stroke();
+  // perimeter (auto-added by the game)
+  ctx.strokeStyle = '#4d5a4a'; ctx.lineWidth = 4;
+  ctx.strokeRect(2, 2, cv.width - 4, cv.height - 4);
+  // blocks
+  for(const [cx, cz, sx, sz, , kind] of blocks){
+    ctx.fillStyle = kind === 'crate' ? '#7a6134' : '#5c6b58';
+    ctx.strokeStyle = kind === 'crate' ? '#4f3d1d' : '#3a4538';
+    ctx.lineWidth = 2;
+    const x = W2C(cx - sx/2), y = W2C(cz - sz/2);
+    ctx.fillRect(x, y, sx*SCALE, sz*SCALE);
+    ctx.strokeRect(x, y, sx*SCALE, sz*SCALE);
+  }
+  // wall being dragged
+  if(drag){
+    const { x, z, sx, sz } = dragRect();
+    ctx.fillStyle = 'rgba(201,194,127,.4)';
+    ctx.fillRect(W2C(x - sx/2), W2C(z - sz/2), sx*SCALE, sz*SCALE);
+  }
+  // pickups
+  const PICON = { rifle:['#2e2e2e','R'], armor:['#2f5fd0','A'], ammo:['#777a3a','M'] };
+  for(const p of pickups){
+    const [col, letter] = PICON[p.kind];
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(W2C(p.x), W2C(p.z), 7, 0, 7); ctx.fill();
+    ctx.fillStyle = '#e8e3c0'; ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(letter, W2C(p.x), W2C(p.z) + .5);
+  }
+  // spawns
+  for(const [x, z] of spawns){
+    ctx.strokeStyle = '#9fd05a'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(W2C(x), W2C(z), 6, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.arc(W2C(x), W2C(z), 2, 0, 7); ctx.stroke();
+  }
+}
+
+function dragRect(){
+  const x0 = Math.min(drag.x0, drag.x1), x1 = Math.max(drag.x0, drag.x1);
+  const z0 = Math.min(drag.z0, drag.z1), z1 = Math.max(drag.z0, drag.z1);
+  const sx = Math.max(1, x1 - x0), sz = Math.max(1, z1 - z0);
+  return { x: x0 + sx/2, z: z0 + sz/2, sx, sz };
+}
+function evPos(e){
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left) * (cv.width / r.width);
+  const py = (e.clientY - r.top) * (cv.height / r.height);
+  return [Math.max(-arena, Math.min(arena, C2W(px))), Math.max(-arena, Math.min(arena, C2W(py)))];
+}
+
+cv.addEventListener('mousedown', e => {
+  const [x, z] = evPos(e);
+  if(tool === 'wall'){ drag = { x0:x, z0:z, x1:x, z1:z }; }
+  else if(tool === 'crate'){ blocks.push([x, z, 2.2, 2.2, 2.2, 'crate']); }
+  else if(tool === 'spawn'){ spawns.push([clampIn(x), clampIn(z)]); }
+  else if(tool === 'rifle' || tool === 'armor' || tool === 'ammo'){ pickups.push({ kind: tool, x: clampIn(x), z: clampIn(z) }); }
+  else if(tool === 'erase'){ eraseAt(x, z); }
+  draw();
+});
+cv.addEventListener('mousemove', e => {
+  if(!drag) return;
+  const [x, z] = evPos(e);
+  drag.x1 = x; drag.z1 = z;
+  draw();
+});
+addEventListener('mouseup', () => {
+  if(!drag) return;
+  const { x, z, sx, sz } = dragRect();
+  if(sx >= 1 && sz >= 1) blocks.push([x, z, sx, sz, 5, 'wall']);
+  drag = null;
+  draw();
+});
+const clampIn = v => Math.max(-(arena - 2), Math.min(arena - 2, v));
+
+function eraseAt(x, z){
+  // nearest spawn/pickup within 2u wins, otherwise topmost block containing the point
+  let bestD = 4, bestFn = null;
+  spawns.forEach((s, i) => {
+    const d = (s[0]-x)**2 + (s[1]-z)**2;
+    if(d < bestD){ bestD = d; bestFn = () => spawns.splice(i, 1); }
+  });
+  pickups.forEach((p, i) => {
+    const d = (p.x-x)**2 + (p.z-z)**2;
+    if(d < bestD){ bestD = d; bestFn = () => pickups.splice(i, 1); }
+  });
+  if(bestFn) return bestFn();
+  for(let i = blocks.length - 1; i >= 0; i--){
+    const [cx, cz, sx, sz] = blocks[i];
+    if(x >= cx - sx/2 - .5 && x <= cx + sx/2 + .5 && z >= cz - sz/2 - .5 && z <= cz + sz/2 + .5){
+      blocks.splice(i, 1); return;
+    }
+  }
+}
+
+/* ---------- toolbar ---------- */
+document.querySelectorAll('#toolbar button').forEach(b => {
+  b.onclick = () => {
+    tool = b.dataset.tool;
+    document.querySelectorAll('#toolbar button').forEach(x => x.classList.toggle('active', x === b));
+  };
+});
+arenaEl.onchange = () => {
+  arena = Math.max(16, Math.min(80, +arenaEl.value || 44));
+  arenaEl.value = arena;
+  fitCanvas();
+};
+
+/* ---------- data in/out ---------- */
+const levelData = () => ({ name: nameEl.value || 'UNTITLED', arena, blocks, spawns, pickups });
+function loadData(d){
+  const v = LEVEL.validateLevel(d);
+  if(!v.ok){ setStatus('INVALID LEVEL: ' + v.error, 'err'); return; }
+  const c = v.clean;
+  nameEl.value = c.name; arena = c.arena; arenaEl.value = c.arena;
+  blocks = c.blocks; spawns = c.spawns; pickups = c.pickups;
+  fitCanvas();
+  setStatus(`LOADED ${c.name} — ${c.blocks.length} blocks, ${c.spawns.length} spawns, ${c.pickups.length} pickups`, 'ok');
+}
+
+document.getElementById('newBtn').onclick = () => {
+  blocks = []; spawns = []; pickups = []; draw();
+  setStatus('BLANK ARENA — get building', 'ok');
+};
+document.getElementById('exportBtn').onclick = () => {
+  const blob = new Blob([JSON.stringify(levelData(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (nameEl.value || 'level').toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.json';
+  a.click();
+};
+document.getElementById('importBtn').onclick = () => document.getElementById('importFile').click();
+document.getElementById('importFile').onchange = e => {
+  const f = e.target.files[0];
+  if(!f) return;
+  f.text().then(t => { try{ loadData(JSON.parse(t)); }catch{ setStatus('IMPORT FAILED: not valid JSON', 'err'); } });
+  e.target.value = '';
+};
+document.getElementById('saveBtn').onclick = async () => {
+  const v = LEVEL.validateLevel(levelData());
+  if(!v.ok){ setStatus('CANNOT SAVE: ' + v.error, 'err'); return; }
+  try{
+    const r = await fetch('/api/levels', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(v.clean) });
+    const j = await r.json();
+    if(j.ok){ setStatus(`SAVED — select "MAP: ${j.name}" when creating a room in the game`, 'ok'); refreshServerLevels(); }
+    else setStatus('SERVER REJECTED: ' + (j.error || 'unknown'), 'err');
+  }catch{ setStatus('SAVE FAILED — is the game server running?', 'err'); }
+};
+
+async function refreshServerLevels(){
+  const sel = document.getElementById('serverLevels');
+  try{
+    const j = await (await fetch('/api/levels')).json();
+    sel.innerHTML = '';
+    for(const lv of j.levels){
+      const o = document.createElement('option');
+      o.value = o.textContent = lv;
+      sel.appendChild(o);
+    }
+  }catch{ sel.innerHTML = '<option>SERVER OFFLINE</option>'; }
+}
+document.getElementById('loadBtn').onclick = async () => {
+  const name = document.getElementById('serverLevels').value;
+  try{
+    const j = await (await fetch('/api/levels/' + encodeURIComponent(name))).json();
+    loadData(j.data);
+  }catch{ setStatus('LOAD FAILED', 'err'); }
+};
+
+refreshServerLevels();
+fitCanvas();
+addEventListener('resize', fitCanvas);
+</script>
+</body>
+</html>

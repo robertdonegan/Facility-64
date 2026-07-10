@@ -1,0 +1,13 @@
+{
+  "name": "facility64-online",
+  "version": "1.0.0",
+  "description": "GoldenEye-inspired multiplayer browser FPS — Node/WebSocket server + Three.js client",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "ws": "^8.21.0"
+  }
+}
