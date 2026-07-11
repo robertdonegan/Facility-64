@@ -41,10 +41,11 @@
       { kind: 'ammo', x: -24, z: 24 }, { kind: 'ammo', x: 0, z: 3.5 },
       { kind: 'ammo', x: 38, z: -38 }, { kind: 'ammo', x: -38, z: 38 },
       { kind: 'mines', x: -30, z: 0 }, { kind: 'mines', x: 30, z: 0 },
+      { kind: 'shotgun', x: 14, z: 32 }, { kind: 'sniper', x: -14, z: -32 },
     ],
   };
 
-  const PICKUP_KINDS = ['rifle', 'armor', 'ammo', 'mines'];
+  const PICKUP_KINDS = ['rifle', 'shotgun', 'sniper', 'armor', 'ammo', 'mines'];
   const THEMES = ['facility', 'jungle', 'office', 'church', 'rooftop'];
   const LIMITS = { arenaMin: 16, arenaMax: 80, blocks: 300, spawns: 32, pickups: 32, nameLen: 16 };
 
@@ -87,7 +88,7 @@
     if (!Array.isArray(data.pickups) || data.pickups.length > LIMITS.pickups) return fail(`pickups must be an array of at most ${LIMITS.pickups}`);
     const pickups = [];
     for (const p of data.pickups) {
-      if (!p || !PICKUP_KINDS.includes(p.kind)) return fail('pickup kind must be rifle/armor/ammo');
+      if (!p || !PICKUP_KINDS.includes(p.kind)) return fail('pickup kind must be one of ' + PICKUP_KINDS.join('/'));
       const x = +p.x, z = +p.z;
       if (!isFinite(x) || !isFinite(z) || Math.abs(x) > arena - 1 || Math.abs(z) > arena - 1) return fail('pickup outside arena');
       pickups.push({ kind: p.kind, x, z });

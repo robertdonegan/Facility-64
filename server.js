@@ -21,8 +21,10 @@ const RESET_MS = 8000;
 const MULTI_KILL_WINDOW_MS = 4500;
 
 const EYE_Y = 1.6, CHEST_Y = 1.3, HIT_RADIUS = 0.75, MAX_RANGE = 60;
-const WEAPON_DMG = { pistol: 34, rifle: 16 };
-const WEAPON_ROF = { pistol: 300, rifle: 95 };   // ms, small tolerance vs client
+const WEAPON_DMG = { pistol: 34, rifle: 16, shotgun: 12, sniper: 80 };
+const WEAPON_ROF = { pistol: 300, rifle: 95, shotgun: 780, sniper: 1300 };   // ms, small tolerance vs client
+const SHOTGUN_MAX_PELLETS = 6;
+const SHOTGUN_MAX_RANGE = 26;      // pellets fall off hard past mid range
 
 const MINE_DMG = 95, MINE_BLAST_R = 4.2, MINE_TRIGGER_R = 1.6;
 const MINE_ARM_MS = 500, MINE_PLACE_COOLDOWN_MS = 500, MAX_MINES_PER_ROOM = 24;
@@ -182,7 +184,7 @@ class Room {
     const [x, z] = this.farSpawn();
     p.x = x; p.z = z; p.yaw = Math.atan2(-x, -z);
     p.hp = 100; p.armor = 0; p.alive = true; p.weapon = 'pistol';
-    p.owned = { pistol: true, rifle: false, mines: false };
+    p.owned = { pistol: true, rifle: false, shotgun: false, sniper: false, mines: false };
     this.broadcast({ t: 'respawn', id: p.id, x, z, yaw: p.yaw });
   }
 
@@ -227,18 +229,12 @@ class Room {
   }
 
   /* -------- authoritative shooting -------- */
-  handleShoot(shooter, d) {
-    if (!shooter.alive || this.gameOver) return;
-    const nowMs = Date.now();
-    if (nowMs - shooter.lastShot < (WEAPON_ROF[shooter.weapon] || 300)) return;
-    shooter.lastShot = nowMs;
-    this.broadcast({ t: 'shot', id: shooter.id }, shooter.id);
-
-    // sanitize direction
-    if (!Array.isArray(d) || d.length !== 3 || d.some(v => !isFinite(+v))) return;
+  // raycast one sanitized direction against players + level; returns the struck player or null
+  raycastRay(shooter, d, maxRange) {
+    if (!Array.isArray(d) || d.length !== 3 || d.some(v => !isFinite(+v))) return null;
     let [dx, dy, dz] = d.map(Number);
     const len = Math.hypot(dx, dy, dz);
-    if (len < 1e-6) return;
+    if (len < 1e-6) return null;
     dx /= len; dy /= len; dz /= len;
 
     // nearest target whose chest cylinder the ray passes through
@@ -247,14 +243,35 @@ class Room {
       if (t === shooter || !t.alive) continue;
       const tox = t.x - shooter.x, toy = CHEST_Y - EYE_Y, toz = t.z - shooter.z;
       const proj = tox * dx + toy * dy + toz * dz;
-      if (proj < 0.5 || proj > MAX_RANGE) continue;
+      if (proj < 0.5 || proj > maxRange) continue;
       const cx = dx * proj - tox, cy = dy * proj - toy, cz = dz * proj - toz;
       if (Math.hypot(cx, cy, cz) < HIT_RADIUS && proj < hitD) { hit = t; hitD = proj; }
     }
-    if (!hit) return;
+    if (!hit) return null;
     // occlusion against the shared level geometry
-    if (this.level.segBlocked(shooter.x, shooter.z, hit.x, hit.z)) return;
-    this.applyDamage(hit, shooter, WEAPON_DMG[shooter.weapon] || 16);
+    if (this.level.segBlocked(shooter.x, shooter.z, hit.x, hit.z)) return null;
+    return hit;
+  }
+
+  handleShoot(shooter, m) {
+    if (!shooter.alive || this.gameOver) return;
+    const nowMs = Date.now();
+    if (nowMs - shooter.lastShot < (WEAPON_ROF[shooter.weapon] || 300)) return;
+    shooter.lastShot = nowMs;
+    this.broadcast({ t: 'shot', id: shooter.id, w: shooter.weapon }, shooter.id);
+
+    const dmg = WEAPON_DMG[shooter.weapon] || 16;
+    if (shooter.weapon === 'shotgun') {
+      // pellet volley: each pellet raycast independently, damage stacks per pellet
+      if (!Array.isArray(m.p)) return;
+      for (const d of m.p.slice(0, SHOTGUN_MAX_PELLETS)) {
+        const hit = this.raycastRay(shooter, d, SHOTGUN_MAX_RANGE);
+        if (hit) this.applyDamage(hit, shooter, dmg);
+      }
+    } else {
+      const hit = this.raycastRay(shooter, m.d, MAX_RANGE);
+      if (hit) this.applyDamage(hit, shooter, dmg);
+    }
   }
 
   applyDamage(target, attacker, dmg) {
@@ -377,7 +394,7 @@ wss.on('connection', (ws) => {
         color: COLORS[(nextId - 2) % COLORS.length],
         x: 0, z: 0, yaw: 0, hp: 100, armor: 0, score: 0, streak: 0, multi: 0, lastKillAt: 0,
         alive: false, weapon: 'pistol', lastShot: 0, lastMine: 0,
-        owned: { pistol: true, rifle: false, mines: false },
+        owned: { pistol: true, rifle: false, shotgun: false, sniper: false, mines: false },
       };
       room.players.set(me.id, me);
       ws.send(JSON.stringify({
@@ -406,7 +423,7 @@ wss.on('connection', (ws) => {
         break;
       }
       case 'shoot':
-        room.handleShoot(me, m.d);
+        room.handleShoot(me, m);
         break;
       case 'switch': {
         const w = String(m.weapon || '');
@@ -422,7 +439,7 @@ wss.on('connection', (ws) => {
         const p = room.pickups[+m.idx];
         if (!p || !p.active) break;
         if ((p.x - me.x) ** 2 + (p.z - me.z) ** 2 > 2.5) break;
-        if (p.kind === 'rifle') { me.weapon = 'rifle'; me.owned.rifle = true; }
+        if (p.kind === 'rifle' || p.kind === 'shotgun' || p.kind === 'sniper') { me.weapon = p.kind; me.owned[p.kind] = true; }
         else if (p.kind === 'armor') { if (me.armor >= 100) break; me.armor = 100; }
         else if (p.kind === 'mines') { me.owned.mines = true; }
         // ammo/mine count is client-side flavour; server just cycles the pickup

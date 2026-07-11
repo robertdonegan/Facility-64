@@ -57,6 +57,8 @@
   <button data-tool="crate">▩ CRATE</button>
   <button data-tool="spawn">◎ SPAWN</button>
   <button data-tool="rifle">▬ RIFLE</button>
+  <button data-tool="shotgun">▤ SHOTGUN</button>
+  <button data-tool="sniper">┼ SNIPER</button>
   <button data-tool="armor">▮ ARMOR</button>
   <button data-tool="ammo">▪ AMMO</button>
   <button data-tool="mines">✱ MINES</button>
@@ -144,7 +146,7 @@ function draw(){
     ctx.fillRect(W2C(x - sx/2), W2C(z - sz/2), sx*SCALE, sz*SCALE);
   }
   // pickups
-  const PICON = { rifle:['#2e2e2e','R'], armor:['#2f5fd0','A'], ammo:['#777a3a','M'], mines:['#c9422f','X'] };
+  const PICON = { rifle:['#2e2e2e','R'], shotgun:['#5a3d20','S'], sniper:['#1d3a2a','L'], armor:['#2f5fd0','A'], ammo:['#777a3a','M'], mines:['#c9422f','X'] };
   for(const p of pickups){
     const [col, letter] = PICON[p.kind];
     ctx.fillStyle = col;
@@ -179,7 +181,7 @@ cv.addEventListener('mousedown', e => {
   if(tool === 'wall'){ drag = { x0:x, z0:z, x1:x, z1:z }; }
   else if(tool === 'crate'){ blocks.push([x, z, 2.2, 2.2, 2.2, 'crate']); }
   else if(tool === 'spawn'){ spawns.push([clampIn(x), clampIn(z)]); }
-  else if(tool === 'rifle' || tool === 'armor' || tool === 'ammo' || tool === 'mines'){ pickups.push({ kind: tool, x: clampIn(x), z: clampIn(z) }); }
+  else if(['rifle','shotgun','sniper','armor','ammo','mines'].includes(tool)){ pickups.push({ kind: tool, x: clampIn(x), z: clampIn(z) }); }
   else if(tool === 'erase'){ eraseAt(x, z); }
   draw();
 });
@@ -333,7 +335,7 @@ function generateArena(){
   }
   if (spawns.length < 2) { spawns.push([-(arena - 2), -(arena - 2)]); spawns.push([arena - 2, arena - 2]); }
 
-  const pool = ['rifle', 'rifle', 'armor', 'armor', 'ammo', 'ammo', 'ammo', 'ammo', 'mines', 'mines'];
+  const pool = ['rifle', 'rifle', 'shotgun', 'sniper', 'armor', 'armor', 'ammo', 'ammo', 'ammo', 'ammo', 'mines', 'mines'];
   const pickups = [];
   let ci = maxSpawns % cellOrder.length;
   for (const kind of pool) {

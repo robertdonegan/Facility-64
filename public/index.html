@@ -116,8 +116,8 @@
   <a id="musicEditorLink" href="/music.html" target="_blank">OPEN MUSIC EDITOR →</a>
   <div id="connStatus"></div>
   <div class="menu-note">
-    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-3 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">M</span> MUTE MUSIC &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
-    PS5 / XBOX CONTROLLER: <span class="keys">STICKS</span> MOVE + LOOK &nbsp;&middot;&nbsp; <span class="keys">RT</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">LB/RB</span> SWITCH &nbsp;&middot;&nbsp; <span class="keys">X</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">L3</span> RUN &nbsp;&middot;&nbsp; <span class="keys">START</span> PAUSE<br><br>
+    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-5 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">RIGHT-CLICK</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">M</span> MUTE MUSIC &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
+    PS5 / XBOX CONTROLLER: <span class="keys">STICKS</span> MOVE + LOOK &nbsp;&middot;&nbsp; <span class="keys">RT</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">LT</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">LB/RB</span> SWITCH &nbsp;&middot;&nbsp; <span class="keys">X</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">L3</span> RUN &nbsp;&middot;&nbsp; <span class="keys">START</span> PAUSE<br><br>
     EVERYONE ON THIS SERVER SHARES ONE ARENA. FIRST TO 10 ELIMINATIONS WINS THE ROUND.
   </div>
 </div>
@@ -323,6 +323,14 @@ function makePickupMesh(kind){
     mesh = new THREE.Mesh(new THREE.BoxGeometry(1.3,.22,.3), new THREE.MeshLambertMaterial({ color:0x2e2e2e }));
     const mag = new THREE.Mesh(new THREE.BoxGeometry(.22,.4,.22), new THREE.MeshLambertMaterial({ color:0x444444 }));
     mag.position.y = -.25; mesh.add(mag);
+  } else if(kind === 'shotgun'){
+    mesh = new THREE.Mesh(new THREE.BoxGeometry(1.1,.26,.3), new THREE.MeshLambertMaterial({ color:0x3a2a15 }));
+    const pump = new THREE.Mesh(new THREE.BoxGeometry(.3,.18,.34), new THREE.MeshLambertMaterial({ color:0x5a3d20 }));
+    pump.position.set(-.2,-.18,0); mesh.add(pump);
+  } else if(kind === 'sniper'){
+    mesh = new THREE.Mesh(new THREE.BoxGeometry(1.6,.18,.24), new THREE.MeshLambertMaterial({ color:0x1d3a2a }));
+    const scope = new THREE.Mesh(new THREE.CylinderGeometry(.07,.07,.4,8), new THREE.MeshLambertMaterial({ color:0x111111 }));
+    scope.rotation.z = Math.PI/2; scope.position.y = .16; mesh.add(scope);
   } else if(kind === 'armor'){
     mesh = new THREE.Mesh(new THREE.BoxGeometry(.9,1,.35), new THREE.MeshLambertMaterial({ color:0x2f5fd0 }));
   } else if(kind === 'mines'){
@@ -407,22 +415,31 @@ buildLevel(LEVEL.DEFAULT_LEVEL_DATA);
 
 /* ================= WEAPONS ================= */
 const WEAPONS = {
-  pistol: { name:'P9 SILENCED',       rof:320, mag:7,  reserve:49, auto:false, spread:0.012, reload:1100, snd:[0.14,0.06,1400] },
-  rifle:  { name:'K74 RIFLE',         rof:105, mag:30, reserve:90, auto:true,  spread:0.03,  reload:1500, snd:[0.3,0.1,700] },
-  mines:  { name:'M7 PROXIMITY MINE', rof:650, mag:2,  reserve:0,  auto:false, spread:0,     reload:0,    isMine:true, cap:5, snd:[0.22,0.08,220] },
+  pistol:  { name:'P9 SILENCED',       rof:320,  mag:7,  reserve:49, auto:false, spread:0.012, reload:1100, ammoPick:14, snd:[0.14,0.06,1400] },
+  shotgun: { name:'S12 SHOTGUN',       rof:820,  mag:5,  reserve:20, auto:false, spread:0.055, reload:1900, ammoPick:5,  pellets:6, snd:[0.42,0.14,480] },
+  rifle:   { name:'K74 RIFLE',         rof:105,  mag:30, reserve:90, auto:true,  spread:0.03,  reload:1500, ammoPick:30, snd:[0.3,0.1,700] },
+  sniper:  { name:'D5K MARKSMAN',      rof:1350, mag:4,  reserve:12, auto:false, spread:0.001, reload:2100, ammoPick:4,  zoom:true, snd:[0.38,0.16,950] },
+  mines:   { name:'M7 PROXIMITY MINE', rof:650,  mag:2,  reserve:0,  auto:false, spread:0,     reload:0,    ammoPick:0,  isMine:true, cap:5, snd:[0.22,0.08,220] },
 };
-const WEAPON_ORDER = ['pistol','rifle','mines'];
+const WEAPON_ORDER = ['pistol','shotgun','rifle','sniper','mines'];
+const GUN_WEAPONS = ['rifle','shotgun','sniper'];   // weapon pickups that equip on grab
+function freshAmmo(){
+  const a = {};
+  for(const w of WEAPON_ORDER) a[w] = { mag: w==='pistol' ? WEAPONS.pistol.mag : 0, reserve: w==='pistol' ? WEAPONS.pistol.reserve : 0 };
+  return a;
+}
+function freshOwned(){
+  const o = {};
+  for(const w of WEAPON_ORDER) o[w] = w === 'pistol';
+  return o;
+}
 
 /* ================= LOCAL PLAYER ================= */
 const me = {
   id:null, name:'AGENT', x:0, z:0, yaw:0, pitch:0, hp:100, armor:0, score:0, alive:false,
   weapon:'pistol',
-  owned: { pistol:true, rifle:false, mines:false },
-  ammo: {
-    pistol:{ mag:WEAPONS.pistol.mag, reserve:WEAPONS.pistol.reserve },
-    rifle:{ mag:0, reserve:0 },
-    mines:{ mag:0, reserve:0 },
-  },
+  owned: freshOwned(),
+  ammo: freshAmmo(),
   lastShot:0, reloading:false, bob:0,
 };
 let winScore = 10;
@@ -455,12 +472,30 @@ function makeAgentMesh(color){
   rFlash.position.set(.58,1.08,-1.5); rFlash.visible = false; wRifle.add(rFlash);
   wRifle.userData.flash = rFlash; wRifle.visible = false;
 
+  const woodR = new THREE.MeshLambertMaterial({ color:0x5a3d20 });
+  const wShotgun = new THREE.Group();
+  const sgBody = new THREE.Mesh(new THREE.BoxGeometry(.14,.15,.85), dark); sgBody.position.set(.58,1.06,-.85); wShotgun.add(sgBody);
+  const sgPump = new THREE.Mesh(new THREE.BoxGeometry(.16,.13,.25), woodR); sgPump.position.set(.58,.95,-1.0); wShotgun.add(sgPump);
+  const sgStock = new THREE.Mesh(new THREE.BoxGeometry(.12,.18,.3), woodR); sgStock.position.set(.58,1.06,-.35); wShotgun.add(sgStock);
+  const sgFlash = new THREE.Mesh(new THREE.BoxGeometry(.3,.3,.3), new THREE.MeshBasicMaterial({ color:0xffe08a }));
+  sgFlash.position.set(.58,1.06,-1.35); sgFlash.visible = false; wShotgun.add(sgFlash);
+  wShotgun.userData.flash = sgFlash; wShotgun.visible = false;
+
+  const wSniper = new THREE.Group();
+  const snBody = new THREE.Mesh(new THREE.BoxGeometry(.1,.12,1.4), dark); snBody.position.set(.58,1.08,-1.05); wSniper.add(snBody);
+  const snScope = new THREE.Mesh(new THREE.CylinderGeometry(.05,.05,.3,8), dark);
+  snScope.rotation.x = Math.PI/2; snScope.position.set(.58,1.22,-.7); wSniper.add(snScope);
+  const snStock = new THREE.Mesh(new THREE.BoxGeometry(.1,.15,.3), woodR); snStock.position.set(.58,1.06,-.3); wSniper.add(snStock);
+  const snFlash = new THREE.Mesh(new THREE.BoxGeometry(.22,.22,.22), new THREE.MeshBasicMaterial({ color:0xffe08a }));
+  snFlash.position.set(.58,1.08,-1.85); snFlash.visible = false; wSniper.add(snFlash);
+  wSniper.userData.flash = snFlash; wSniper.visible = false;
+
   const wMines = new THREE.Group();
   const mBody = new THREE.Mesh(new THREE.CylinderGeometry(.16,.18,.1,10), new THREE.MeshLambertMaterial({ color:0x8a2f2f })); mBody.position.set(.58,1.02,-.7); wMines.add(mBody);
   wMines.visible = false;
 
-  g.add(wPistol, wRifle, wMines);
-  g.userData.weapons = { pistol:wPistol, rifle:wRifle, mines:wMines };
+  g.add(wPistol, wShotgun, wRifle, wSniper, wMines);
+  g.userData.weapons = { pistol:wPistol, shotgun:wShotgun, rifle:wRifle, sniper:wSniper, mines:wMines };
   g.userData.flash = pFlash; g.userData.legs = [legL, legR];
   return g;
 }
@@ -468,9 +503,7 @@ function setAgentWeapon(mesh, weapon){
   const w = mesh.userData.weapons;
   if(!w) return;
   const kind = w[weapon] ? weapon : 'pistol';
-  w.pistol.visible = kind === 'pistol';
-  w.rifle.visible = kind === 'rifle';
-  w.mines.visible = kind === 'mines';
+  for(const k in w) w[k].visible = k === kind;
   mesh.userData.flash = w[kind].userData.flash || null;
 }
 function makeNameSprite(name){
@@ -592,13 +625,10 @@ function handleMsg(m){
         me.x = m.x; me.z = m.z; me.yaw = m.yaw; me.pitch = 0;
         me.hp = 100; me.armor = 0; me.alive = true;
         me.weapon = 'pistol';
-        me.owned = { pistol:true, rifle:false, mines:false };
-        me.ammo = {
-          pistol:{ mag:WEAPONS.pistol.mag, reserve:WEAPONS.pistol.reserve },
-          rifle:{ mag:0, reserve:0 },
-          mines:{ mag:0, reserve:0 },
-        };
+        me.owned = freshOwned();
+        me.ammo = freshAmmo();
         me.reloading = false;
+        setZoom(false);
         updateGunModel();
         document.getElementById('deadNotice').style.display = 'none';
         updateHUD();
@@ -648,17 +678,17 @@ function handleMsg(m){
       pickupMeshes[m.idx].visible = m.active;
       if(!m.active && m.by === me.id){
         const kind = m.kind;
-        if(kind === 'rifle'){
-          if(me.owned.rifle){ me.ammo.rifle.reserve = Math.min(150, me.ammo.rifle.reserve + 30); }
+        if(GUN_WEAPONS.includes(kind)){
+          if(me.owned[kind]){ me.ammo[kind].reserve = Math.min(150, me.ammo[kind].reserve + WEAPONS[kind].ammoPick); }
           else {
-            me.owned.rifle = true; me.weapon = 'rifle';
-            me.ammo.rifle = { mag:WEAPONS.rifle.mag, reserve:WEAPONS.rifle.reserve };
+            me.owned[kind] = true; me.weapon = kind;
+            me.ammo[kind] = { mag:WEAPONS[kind].mag, reserve:WEAPONS[kind].reserve };
             me.reloading = false;
             updateGunModel();
           }
         } else if(kind === 'ammo'){
           const target = me.weapon === 'mines' ? 'pistol' : me.weapon;
-          me.ammo[target].reserve = Math.min(150, me.ammo[target].reserve + (target === 'rifle' ? 30 : 14));
+          me.ammo[target].reserve = Math.min(150, me.ammo[target].reserve + WEAPONS[target].ammoPick);
         } else if(kind === 'mines'){
           if(!me.owned.mines){ me.owned.mines = true; me.ammo.mines.mag = WEAPONS.mines.mag; }
           else { me.ammo.mines.mag = Math.min(WEAPONS.mines.cap, me.ammo.mines.mag + 2); }
@@ -785,13 +815,29 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if(e.code === 'KeyR') startReload();
   if(e.code === 'Digit1') trySwitchWeapon('pistol');
-  if(e.code === 'Digit2') trySwitchWeapon('rifle');
-  if(e.code === 'Digit3') trySwitchWeapon('mines');
+  if(e.code === 'Digit2') trySwitchWeapon('shotgun');
+  if(e.code === 'Digit3') trySwitchWeapon('rifle');
+  if(e.code === 'Digit4') trySwitchWeapon('sniper');
+  if(e.code === 'Digit5') trySwitchWeapon('mines');
   if(e.code === 'KeyM') toggleMusicMute();
 });
 addEventListener('keyup', e => keys[e.code] = false);
-addEventListener('mousedown', e => { if(document.pointerLockElement === canvas && e.button === 0){ mouseDown = true; fire(); } });
-addEventListener('mouseup', () => mouseDown = false);
+let zoomed = false;
+function setZoom(on){
+  on = on && !!WEAPONS[me.weapon].zoom;
+  if(zoomed === on) return;
+  zoomed = on;
+  camera.fov = on ? 26 : 72;
+  camera.updateProjectionMatrix();
+  gunGroup.visible = !on;   // scoped view hides the view-model
+}
+addEventListener('contextmenu', e => { if(started) e.preventDefault(); });
+addEventListener('mousedown', e => {
+  if(document.pointerLockElement !== canvas) return;
+  if(e.button === 0){ mouseDown = true; fire(); }
+  if(e.button === 2) setZoom(true);
+});
+addEventListener('mouseup', e => { mouseDown = false; if(e.button === 2) setZoom(false); });
 function cycleWeapon(dir){
   const order = WEAPON_ORDER.filter(w => me.owned[w]);
   if(order.length < 2) return;
@@ -804,8 +850,9 @@ addEventListener('wheel', e => {
 });
 addEventListener('mousemove', e => {
   if(document.pointerLockElement !== canvas) return;
-  me.yaw   -= e.movementX * 0.0022;
-  me.pitch -= e.movementY * 0.0022;
+  const sens = zoomed ? 0.0009 : 0.0022;
+  me.yaw   -= e.movementX * sens;
+  me.pitch -= e.movementY * sens;
   me.pitch = Math.max(-1.35, Math.min(1.35, me.pitch));
 });
 
@@ -813,7 +860,7 @@ addEventListener('mousemove', e => {
    0 A/Cross 1 B/Circle 2 X/Square 3 Y/Triangle 4 LB/L1 5 RB/R1 6 LT/L2 7 RT/R2
    8 Select/Share 9 Start/Options 10 L3 11 R3 · axes 0/1 left stick, 2/3 right stick */
 let gpIndex = null;
-const gpPrev = { fire:false, lb:false, rb:false, reload:false, start:false };
+const gpPrev = { fire:false, lb:false, rb:false, reload:false, start:false, lt:false };
 addEventListener('gamepadconnected', e => { gpIndex = e.gamepad.index; });
 addEventListener('gamepaddisconnected', e => { if(gpIndex === e.gamepad.index) gpIndex = null; });
 function getPad(){
@@ -875,6 +922,26 @@ const fpWeapons = {};
   rFlash.position.set(.27,-.14,-1.42); rFlash.visible = false; vRifle.add(rFlash);
   vRifle.userData.flash = rFlash; vRifle.visible = false;
 
+  const wood = new THREE.MeshLambertMaterial({ color:0x5a3d20 });
+  const vShotgun = new THREE.Group();
+  const sBarrel = new THREE.Mesh(new THREE.BoxGeometry(.11,.11,.8), dark); sBarrel.position.set(.27,-.13,-.9); vShotgun.add(sBarrel);
+  const sTube = new THREE.Mesh(new THREE.BoxGeometry(.09,.09,.7), dark); sTube.position.set(.27,-.23,-.85); vShotgun.add(sTube);
+  const sPump = new THREE.Mesh(new THREE.BoxGeometry(.14,.12,.28), wood); sPump.position.set(.27,-.24,-.95); vShotgun.add(sPump);
+  const sStock = new THREE.Mesh(new THREE.BoxGeometry(.1,.18,.35), wood); sStock.position.set(.27,-.22,-.28); vShotgun.add(sStock);
+  const sFlash = new THREE.Mesh(new THREE.BoxGeometry(.24,.24,.24), new THREE.MeshBasicMaterial({ color:0xffe08a }));
+  sFlash.position.set(.27,-.13,-1.32); sFlash.visible = false; vShotgun.add(sFlash);
+  vShotgun.userData.flash = sFlash; vShotgun.visible = false;
+
+  const vSniper = new THREE.Group();
+  const nBarrel = new THREE.Mesh(new THREE.BoxGeometry(.07,.08,1.25), dark); nBarrel.position.set(.27,-.13,-1.15); vSniper.add(nBarrel);
+  const nBody = new THREE.Mesh(new THREE.BoxGeometry(.1,.15,.45), dark); nBody.position.set(.27,-.17,-.5); vSniper.add(nBody);
+  const nStock = new THREE.Mesh(new THREE.BoxGeometry(.09,.14,.3), wood); nStock.position.set(.27,-.19,-.15); vSniper.add(nStock);
+  const nScope = new THREE.Mesh(new THREE.CylinderGeometry(.045,.045,.32,8), dark);
+  nScope.rotation.x = Math.PI/2; nScope.position.set(.27,-.04,-.55); vSniper.add(nScope);
+  const nFlash = new THREE.Mesh(new THREE.BoxGeometry(.16,.16,.16), new THREE.MeshBasicMaterial({ color:0xffe08a }));
+  nFlash.position.set(.27,-.13,-1.82); nFlash.visible = false; vSniper.add(nFlash);
+  vSniper.userData.flash = nFlash; vSniper.visible = false;
+
   const vMines = new THREE.Group();
   const mDevice = new THREE.Mesh(new THREE.CylinderGeometry(.16,.18,.09,10), new THREE.MeshLambertMaterial({ color:0x8a2f2f }));
   mDevice.position.set(.24,-.24,-.55); vMines.add(mDevice);
@@ -882,14 +949,12 @@ const fpWeapons = {};
   mLed.position.set(.24,-.185,-.55); vMines.add(mLed);
   vMines.visible = false;
 
-  gunGroup.add(vPistol, vRifle, vMines);
-  fpWeapons.pistol = vPistol; fpWeapons.rifle = vRifle; fpWeapons.mines = vMines;
+  gunGroup.add(vPistol, vShotgun, vRifle, vSniper, vMines);
+  fpWeapons.pistol = vPistol; fpWeapons.shotgun = vShotgun; fpWeapons.rifle = vRifle; fpWeapons.sniper = vSniper; fpWeapons.mines = vMines;
   gunGroup.userData.flash = pFlash;
 }
 function updateGunModel(){
-  fpWeapons.pistol.visible = me.weapon === 'pistol';
-  fpWeapons.rifle.visible = me.weapon === 'rifle';
-  fpWeapons.mines.visible = me.weapon === 'mines';
+  for(const w of WEAPON_ORDER) fpWeapons[w].visible = me.weapon === w;
   gunGroup.userData.flash = fpWeapons[me.weapon].userData.flash || null;
 }
 camera.add(gunGroup); scene.add(camera);
@@ -924,25 +989,30 @@ function fire(){
   }
 
   if(a.mag <= 0){ startReload(); return; }
-  me.lastShot = now; a.mag--; gunKick = 1;
+  me.lastShot = now; a.mag--; gunKick = w.pellets ? 1.6 : 1;
   shotSound(...w.snd);
   const f = gunGroup.userData.flash; f.visible = true; setTimeout(()=>f.visible=false, 45);
 
-  // spread is applied client-side, then the exact direction is sent —
-  // the server raycasts this ray against players + level geometry
-  const dir = new THREE.Vector3();
-  camera.getWorldDirection(dir);
-  dir.x += (Math.random()-.5)*w.spread*2;
-  dir.y += (Math.random()-.5)*w.spread*2;
-  dir.z += (Math.random()-.5)*w.spread*2;
-  dir.normalize();
-  send({ t:'shoot', d:[+dir.x.toFixed(4), +dir.y.toFixed(4), +dir.z.toFixed(4)] });
+  // spread is applied client-side, then the exact direction(s) are sent —
+  // the server raycasts each ray against players + level geometry
+  const spreadDir = () => {
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    dir.x += (Math.random()-.5)*w.spread*2;
+    dir.y += (Math.random()-.5)*w.spread*2;
+    dir.z += (Math.random()-.5)*w.spread*2;
+    dir.normalize();
+    return [+dir.x.toFixed(4), +dir.y.toFixed(4), +dir.z.toFixed(4)];
+  };
+  if(w.pellets) send({ t:'shoot', p: Array.from({length:w.pellets}, spreadDir) });
+  else send({ t:'shoot', d: spreadDir() });
 
   updateHUD();
   if(a.mag === 0) startReload();
 }
 function trySwitchWeapon(w){
   if(!started || !me.alive || me.weapon === w || !me.owned[w]) return;
+  setZoom(false);
   me.weapon = w; me.reloading = false;
   send({ t:'switch', weapon:w });
   updateGunModel();
@@ -1076,6 +1146,8 @@ function loop(){
         const reloadBtn = gpPressed(pad, 2);
         if(reloadBtn && !gpPrev.reload) startReload();
         gpPrev.reload = reloadBtn;
+        const lt = gpPressed(pad, 6);
+        if(lt !== gpPrev.lt){ setZoom(lt); gpPrev.lt = lt; }
       }
       if(mouseDown && WEAPONS[me.weapon].auto) fire();
       tryPickup();
