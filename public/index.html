@@ -70,6 +70,10 @@
   #endTitle { font-size:48px; }
   #endBoard { color:#e8e3c0; font-size:20px; letter-spacing:3px; line-height:2; margin-bottom:20px; text-align:center; }
   #pauseMenu, #endMenu { display:none; background:rgba(4,8,5,.88); }
+  #scoreboard { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); background:rgba(4,10,5,.88); border:2px solid #c9c27f; box-shadow:6px 6px 0 rgba(0,0,0,.55); padding:16px 34px 20px; display:none; min-width:340px; }
+  #scoreboard h3 { color:#c9c27f; letter-spacing:6px; font-size:20px; margin-bottom:10px; text-align:center; font-weight:normal; }
+  .sb-row { display:flex; justify-content:space-between; gap:40px; color:#e8e3c0; font-size:17px; letter-spacing:2px; line-height:1.9; }
+  .sb-row.you { color:#9fd05a; }
   .blink { animation:blink 1.2s steps(2) infinite; }
   @keyframes blink { 50% { opacity:.25; } }
 </style>
@@ -101,6 +105,7 @@
     <div id="reloadHint">PRESS R TO RELOAD</div>
   </div>
   <div id="ping"></div>
+  <div id="scoreboard"></div>
 </div>
 
 <div class="overlay" id="mainMenu">
@@ -116,8 +121,8 @@
   <a id="musicEditorLink" href="/music.html" target="_blank">OPEN MUSIC EDITOR →</a>
   <div id="connStatus"></div>
   <div class="menu-note">
-    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-5 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">RIGHT-CLICK</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">M</span> MUTE MUSIC &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
-    PS5 / XBOX CONTROLLER: <span class="keys">STICKS</span> MOVE + LOOK &nbsp;&middot;&nbsp; <span class="keys">RT</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">LT</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">LB/RB</span> SWITCH &nbsp;&middot;&nbsp; <span class="keys">X</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">L3</span> RUN &nbsp;&middot;&nbsp; <span class="keys">START</span> PAUSE<br><br>
+    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-5 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">RIGHT-CLICK</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">TAB</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">M</span> MUTE MUSIC &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
+    PS5 / XBOX CONTROLLER: <span class="keys">STICKS</span> MOVE + LOOK &nbsp;&middot;&nbsp; <span class="keys">RT</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">LT</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">LB/RB</span> SWITCH &nbsp;&middot;&nbsp; <span class="keys">X</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">L3</span> RUN &nbsp;&middot;&nbsp; <span class="keys">SELECT</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">START</span> PAUSE<br><br>
     EVERYONE ON THIS SERVER SHARES ONE ARENA. FIRST TO 10 ELIMINATIONS WINS THE ROUND.
   </div>
 </div>
@@ -530,6 +535,159 @@ function spawnBlastFX(x, z){
 }
 const mineMeshes = new Map(); // id -> mesh
 
+/* ---- environmental props: deterministic per level (seeded by name+arena) so every
+   client renders the same set. Purely cosmetic — no collision, so they hug walls,
+   hang from ceilings, or sit outside the arena entirely. ---- */
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function levelSeed(data){
+  let s = Math.round(+data.arena) * 7919;
+  const nm = String(data.name||'');
+  for(let i=0;i<nm.length;i++) s = (s * 31 + nm.charCodeAt(i)) | 0;
+  return s;
+}
+const cityTex = makeTex((g,w,h)=>{
+  g.fillStyle='#232a33'; g.fillRect(0,0,w,h);
+  for(let y=4;y<h-4;y+=9) for(let x=4;x<w-4;x+=8){
+    g.fillStyle = Math.random()<.4 ? '#d8c87a' : '#151a20';
+    g.fillRect(x,y,4,5);
+  }
+},64,128);
+
+function addThemeProps(group, theme, A, rng){
+  const free = (x,z,r) => !LEVELINST.collides(x, z, r);
+  const ringSpots = (n, inset) => {
+    const spots = [];
+    for(let i=0;i<n;i++){
+      const side = i % 4, t = (rng()*2-1)*(A-inset-2);
+      if(side===0) spots.push([t, -A+inset]);
+      else if(side===1) spots.push([t, A-inset]);
+      else if(side===2) spots.push([-A+inset, t]);
+      else spots.push([A-inset, t]);
+    }
+    return spots;
+  };
+  const lambert = c => new THREE.MeshLambertMaterial({ color:c });
+  const glow = c => new THREE.MeshBasicMaterial({ color:c });
+
+  if(theme === 'facility'){
+    for(let x=-A+10; x<A-4; x+=12) for(let z=-A+10; z<A-4; z+=12){   // ceiling light strips
+      const l = new THREE.Mesh(new THREE.BoxGeometry(3,.08,.5), glow(0xdfe8c0));
+      l.position.set(x, 4.9, z); group.add(l);
+    }
+    for(const sgn of [-1,1]){                                        // wall pipes, both axes
+      const pipeH = new THREE.Mesh(new THREE.BoxGeometry(A*2-3,.18,.18), lambert(0x46543f));
+      pipeH.position.set(0, 3.6, sgn*(A-0.7)); group.add(pipeH);
+      const pipeV = new THREE.Mesh(new THREE.BoxGeometry(.18,.18,A*2-3), lambert(0x50454f));
+      pipeV.position.set(sgn*(A-0.7), 3.2, 0); group.add(pipeV);
+    }
+    for(const [x,z] of ringSpots(10, 1.6)){                          // barrels
+      if(!free(x,z,.7)) continue;
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(.5,.5,1.35,10), lambert(0x3d5240));
+      b.position.set(x,.68,z); group.add(b);
+      const lid = new THREE.Mesh(new THREE.CylinderGeometry(.52,.52,.08,10), lambert(0x2c3b2e));
+      lid.position.set(x,1.38,z); group.add(lid);
+    }
+  }
+  else if(theme === 'jungle'){
+    for(const [x,z] of ringSpots(14, 2.2)){                          // perimeter trees
+      if(!free(x,z,1)) continue;
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.22,.34,2.6,7), lambert(0x4a3620));
+      trunk.position.set(x,1.3,z); group.add(trunk);
+      const fol1 = new THREE.Mesh(new THREE.ConeGeometry(1.7,1.7,8), lambert(0x2e4a1e));
+      fol1.position.set(x,3.0,z); group.add(fol1);
+      const fol2 = new THREE.Mesh(new THREE.ConeGeometry(1.2,1.3,8), lambert(0x3a5c26));
+      fol2.position.set(x,3.9,z); group.add(fol2);
+    }
+    for(let i=0;i<16;i++){                                           // ferns anywhere open
+      const x = (rng()*2-1)*(A-3), z = (rng()*2-1)*(A-3);
+      if(!free(x,z,.5)) continue;
+      for(let k=0;k<3;k++){
+        const f = new THREE.Mesh(new THREE.ConeGeometry(.3,.9,5), lambert(0x4c7033));
+        f.position.set(x+(rng()-.5)*.7, .45, z+(rng()-.5)*.7);
+        f.rotation.z = (rng()-.5)*.5; f.rotation.x = (rng()-.5)*.5;
+        group.add(f);
+      }
+    }
+  }
+  else if(theme === 'office'){
+    for(let x=-A+8; x<A-4; x+=10) for(let z=-A+8; z<A-4; z+=10){     // ceiling panels
+      const l = new THREE.Mesh(new THREE.BoxGeometry(2.4,.06,1.2), glow(0xf4f6ec));
+      l.position.set(x, 4.9, z); group.add(l);
+    }
+    for(const [x,z] of ringSpots(8, 1.5)){                           // potted plants
+      if(!free(x,z,.6)) continue;
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(.3,.24,.5,8), lambert(0x8a5a38));
+      pot.position.set(x,.25,z); group.add(pot);
+      const leaves = new THREE.Mesh(new THREE.SphereGeometry(.55,7,6), lambert(0x3f6b33));
+      leaves.position.set(x,1.0,z); group.add(leaves);
+    }
+    for(const [x,z] of ringSpots(6, 1.4)){                           // filing cabinets
+      if(!free(x,z,.7)) continue;
+      const cab = new THREE.Mesh(new THREE.BoxGeometry(.9,1.5,.6), lambert(0x9aa0a6));
+      cab.position.set(x,.75,z); group.add(cab);
+      for(let d=0;d<3;d++){
+        const handle = new THREE.Mesh(new THREE.BoxGeometry(.4,.05,.05), lambert(0x5c6166));
+        handle.position.set(x, .4+d*.45, z+.31); group.add(handle);
+      }
+    }
+  }
+  else if(theme === 'church'){
+    for(const [x,z] of ringSpots(12, 1.4)){                          // candle stands
+      if(!free(x,z,.4)) continue;
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(.06,.1,1.25,6), lambert(0x2c2418));
+      pole.position.set(x,.62,z); group.add(pole);
+      const cup = new THREE.Mesh(new THREE.CylinderGeometry(.14,.1,.12,6), lambert(0x87742f));
+      cup.position.set(x,1.28,z); group.add(cup);
+      const flame = new THREE.Mesh(new THREE.SphereGeometry(.07,5,5), glow(0xffc65e));
+      flame.position.set(x,1.44,z); group.add(flame);
+    }
+    for(let x=-A+9; x<A-4; x+=14){                                   // hanging chandeliers on the spine
+      const chain = new THREE.Mesh(new THREE.BoxGeometry(.05,1.1,.05), lambert(0x1c150e));
+      chain.position.set(x, 4.45, 0); group.add(chain);
+      const ring = new THREE.Mesh(new THREE.CylinderGeometry(.55,.55,.1,8), lambert(0x3a2f1c));
+      ring.position.set(x, 3.9, 0); group.add(ring);
+      for(let k=0;k<4;k++){
+        const a = k*Math.PI/2;
+        const fl = new THREE.Mesh(new THREE.SphereGeometry(.06,5,5), glow(0xffc65e));
+        fl.position.set(x+Math.cos(a)*.45, 4.05, Math.sin(a)*.45); group.add(fl);
+      }
+    }
+  }
+  else if(theme === 'rooftop'){
+    const n = 18;                                                    // city skyline outside the arena
+    for(let i=0;i<n;i++){
+      const a = (i/n)*Math.PI*2 + rng()*.2;
+      const dist = A + 8 + rng()*10;
+      const bw = 5+rng()*8, bh = 7+rng()*15;
+      const bmat = new THREE.MeshLambertMaterial({ map:cityTex });
+      const b = new THREE.Mesh(new THREE.BoxGeometry(bw,bh,bw), bmat);
+      b.position.set(Math.cos(a)*dist, bh/2-2, Math.sin(a)*dist);
+      group.add(b);
+    }
+    for(const [x,z] of ringSpots(7, 2)){                             // AC units
+      if(!free(x,z,1)) continue;
+      const ac = new THREE.Mesh(new THREE.BoxGeometry(1.6,1,1.2), lambert(0xb0b4b8));
+      ac.position.set(x,.5,z); group.add(ac);
+      const fan = new THREE.Mesh(new THREE.CylinderGeometry(.4,.4,.06,10), lambert(0x3c4044));
+      fan.position.set(x,1.04,z); group.add(fan);
+    }
+    const corner = ringSpots(1, 3)[0];                               // antenna mast
+    if(corner && free(corner[0],corner[1],.5)){
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(.07,.12,6.5,6), lambert(0x8a8f93));
+      mast.position.set(corner[0],3.25,corner[1]); group.add(mast);
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(.12,6,6), glow(0xff3b30));
+      beacon.position.set(corner[0],6.6,corner[1]); group.add(beacon);
+    }
+  }
+}
+
 function buildLevel(data){
   LEVELINST = LEVEL.makeLevel(data);
   if(levelGroup) scene.remove(levelGroup);
@@ -559,11 +717,13 @@ function buildLevel(data){
     m.position.set(cx, sy/2, cz);
     levelGroup.add(m);
   }
-  const strips = Math.floor(A/12);
-  for(let i=-strips;i<=strips;i++){
-    const strip = new THREE.Mesh(new THREE.PlaneGeometry(1.6, .25), new THREE.MeshBasicMaterial({ color:0x9fd05a }));
-    strip.position.set(i*10, 4.2, -A+0.55); levelGroup.add(strip);
-    const strip2 = strip.clone(); strip2.rotation.y = Math.PI; strip2.position.z = A-0.55; levelGroup.add(strip2);
+  if(LEVELINST.theme === 'facility'){
+    const strips = Math.floor(A/12);
+    for(let i=-strips;i<=strips;i++){
+      const strip = new THREE.Mesh(new THREE.PlaneGeometry(1.6, .25), new THREE.MeshBasicMaterial({ color:0x9fd05a }));
+      strip.position.set(i*10, 4.2, -A+0.55); levelGroup.add(strip);
+      const strip2 = strip.clone(); strip2.rotation.y = Math.PI; strip2.position.z = A-0.55; levelGroup.add(strip2);
+    }
   }
 
   PICKUPS = LEVELINST.PICKUPS;
@@ -575,6 +735,7 @@ function buildLevel(data){
     return mesh;
   });
   pickupActive = PICKUPS.map(()=>true);
+  addThemeProps(levelGroup, LEVELINST.theme, A, mulberry32(levelSeed(data)));
   scene.add(levelGroup);
 }
 buildLevel(LEVEL.DEFAULT_LEVEL_DATA);
@@ -971,14 +1132,26 @@ function updateHUD(){
   }
   document.getElementById('scoreStrip').textContent = strip;
   document.getElementById('waitNotice').style.display = others.length ? 'none' : 'block';
+  if(scoreboardEl.style.display === 'block') renderScoreboard();
 }
 
 /* ================= INPUT ================= */
 const keys = {};
 let mouseDown = false;
 let paused = true, started = false;
+const scoreboardEl = document.getElementById('scoreboard');
+function showScoreboard(on){
+  scoreboardEl.style.display = on && started ? 'block' : 'none';
+  if(on) renderScoreboard();
+}
+function renderScoreboard(){
+  const rows = latestBoard.slice().sort((a,b)=>b.score-a.score);
+  scoreboardEl.innerHTML = '<h3>SCOREBOARD — FIRST TO ' + winScore + '</h3>' + rows.map(e =>
+    `<div class="sb-row${e.id===me.id?' you':''}"><span>${e.name}</span><span>${e.score}</span></div>`).join('');
+}
 addEventListener('keydown', e => {
   keys[e.code] = true;
+  if(e.code === 'Tab' && started){ e.preventDefault(); showScoreboard(true); }
   if(e.code === 'KeyR') startReload();
   if(e.code === 'Digit1') trySwitchWeapon('pistol');
   if(e.code === 'Digit2') trySwitchWeapon('shotgun');
@@ -987,7 +1160,10 @@ addEventListener('keydown', e => {
   if(e.code === 'Digit5') trySwitchWeapon('mines');
   if(e.code === 'KeyM') toggleMusicMute();
 });
-addEventListener('keyup', e => keys[e.code] = false);
+addEventListener('keyup', e => {
+  keys[e.code] = false;
+  if(e.code === 'Tab') showScoreboard(false);
+});
 let zoomed = false;
 function setZoom(on){
   on = on && !!WEAPONS[me.weapon].zoom;
@@ -1026,7 +1202,7 @@ addEventListener('mousemove', e => {
    0 A/Cross 1 B/Circle 2 X/Square 3 Y/Triangle 4 LB/L1 5 RB/R1 6 LT/L2 7 RT/R2
    8 Select/Share 9 Start/Options 10 L3 11 R3 · axes 0/1 left stick, 2/3 right stick */
 let gpIndex = null;
-const gpPrev = { fire:false, lb:false, rb:false, reload:false, start:false, lt:false };
+const gpPrev = { fire:false, lb:false, rb:false, reload:false, start:false, lt:false, sel:false };
 addEventListener('gamepadconnected', e => { gpIndex = e.gamepad.index; });
 addEventListener('gamepaddisconnected', e => { if(gpIndex === e.gamepad.index) gpIndex = null; });
 function getPad(){
@@ -1268,6 +1444,8 @@ function loop(){
         else if(paused) tryLock();
       }
       gpPrev.start = startBtn;
+      const sel = gpPressed(pad, 8);
+      if(sel !== gpPrev.sel){ showScoreboard(sel); gpPrev.sel = sel; }
     }
 
     // local movement (client predicts; server range-clamps)
