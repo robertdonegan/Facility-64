@@ -1,4 +1,4 @@
-# FACILITY 64 — ONLINE (v2)
+# FACILITY 64 — ONLINE
 
 A GoldenEye-inspired multiplayer browser FPS. Node.js WebSocket server + Three.js client, no build step, one dependency (`ws`).
 
@@ -12,19 +12,54 @@ npm start
 # → http://localhost:8080
 ```
 
-Open the URL in a desktop browser (needs mouse + keyboard — pointer lock doesn't work on touch devices), pick a codename, and enter the arena. Open a second browser window to see multiplayer working immediately.
+Open the URL, pick a codename, choose a map and music track, and enter the arena. Open a second browser window to see multiplayer working immediately. Works on desktop (mouse + keyboard), gamepads (PS5 / Xbox), and mobile (landscape, touch controls).
 
 ## Playing with friends
 
 - **Same network (LAN):** share `http://<your-lan-ip>:8080` (find it with `ipconfig` / `ifconfig`).
 - **Over the internet, no deploy:** run a tunnel — e.g. `npx localtunnel --port 8080` or `cloudflared tunnel --url http://localhost:8080` — and share the HTTPS URL it prints. The client auto-upgrades to `wss://` on HTTPS pages.
-- **Hosted:** deploy anywhere that runs Node and supports WebSockets (Railway, Fly.io, Render, a VPS). It listens on `process.env.PORT`.
+- **Hosted:** deploy anywhere that runs Node and supports WebSockets (Render, Railway, Fly.io, a VPS). It listens on `process.env.PORT`.
 
 ## Controls
 
-WASD move · mouse aim · click fire · **R** reload · **Shift** sprint · **Esc** pause (the match carries on without you)
+| Input | Bindings |
+|---|---|
+| **Keyboard + mouse** | WASD move · mouse aim · click fire · right-click scope · **R** reload · **1–5** / scroll switch weapon · **Shift** sprint · **Tab** scoreboard · **M** mute music · **Esc** pause |
+| **PS5 / Xbox pad** | Sticks move + look · **RT** fire · **LT** scope · **LB/RB** switch weapon · **X/Square** reload · **L3** sprint · **Select/Share** scoreboard · **Start/Options** pause |
+| **Mobile (landscape)** | Left thumb: floating stick to move · right thumb: drag to look · FIRE / RLD / SWAP / SCOPE buttons · GYRO toggles tilt aim (asks device permission) |
 
-Mouse aim and firing need pointer lock, which browsers only grant on a click — if you ever see **CLICK TO TAKE CONTROL**, click the game view once and you're locked in. Esc releases the mouse and pauses.
+Desktop aim needs pointer lock, which browsers only grant on a click — if you see **CLICK TO TAKE CONTROL**, click the game view once. Controllers use the W3C standard mapping, so DualSense and Xbox pads work identically, plugged in or Bluetooth.
+
+## Arsenal
+
+| # | Weapon | Behaviour |
+|---|---|---|
+| 1 | **P9 Silenced** (spawn weapon) | 34 dmg semi-auto pistol |
+| 2 | **S12 Shotgun** | 6-pellet volley, 12 dmg per pellet, devastating close, useless past 26u |
+| 3 | **K74 Rifle** | full-auto, 16 dmg |
+| 4 | **D5K Marksman** | 80 dmg bolt rhythm, right-click/LT scope zoom |
+| 5 | **M7 Proximity Mine** | place at your feet, arms in 0.5s, detonates on enemy proximity with AoE falloff |
+
+Weapons are pickups; you keep everything you've grabbed until you die and switch freely between them. Armor absorbs 70% of incoming damage, ammo crates refill whatever you're holding.
+
+## Terrain themes
+
+Levels declare one of five themes, which drive textures, lighting, fog, and cosmetic props: **facility** (concrete, hazard stripes, pipe runs, barrels), **jungle** (mossy ruins, vines, perimeter trees, ferns), **office** (drywall, carpet tiles, ceiling panels, potted plants, filing cabinets), **church** (ashlar stone, stained glass, candle stands, chandeliers), **rooftop** (weathered brick, open sky, a lit city skyline ringing the arena, AC units). Props are seeded deterministically from the level name so every client sees the same set.
+
+## Ready-made maps
+
+Five maps ship in the MAP dropdown: **FACILITY** (built-in), plus **JUNGLE TEMPLE**, **HEADQUARTERS**, **CATHEDRAL**, and **SKYLINE** — one per theme, stored as JSON in `levels/`. The first player to create a room picks its map (and music); everyone joining plays it.
+
+## The editors
+
+All four are linked from the main menu and need no build step:
+
+- **Level editor (`/editor.html`):** top-down grid — drag walls, click to place crates, spawns, and every pickup type; pick a theme; or hit **GENERATE ARENA** for a procedural layout (randomized spanning tree, so every room is always reachable, with door gaps, cover, spawns, and pickups). **SAVE TO SERVER** validates and writes to `levels/`, instantly selectable in the game menu.
+- **Music editor (`/music.html`):** a step sequencer (8/16/32 steps, 60–220 BPM) with lead and bass pitch grids plus kick/snare/hat rows. Preview in-browser, then **SAVE TO SERVER** — the track appears in the MUSIC dropdown and plays as the room's soundtrack via a Web Audio lookahead scheduler.
+- **Weapon workshop (`/weapons.html`):** every gun (first-person view *and* the model other players hold) is a stack of primitive parts — box/cylinder/sphere/cone with size, position, rotation, colour, glow/flash flags. Edit them against a live orbitable 3D preview, save, and the game uses your designs. Export/import JSON to share.
+- **Texture studio (`/textures.html`):** paint the walls and floors of all five themes, the crate faces, and the rooftop skyline windows as 128px pixel art — brush, flood fill, colour picker, undo, and a tiled preview for checking seams. Export/import PNG.
+
+Weapon designs and texture paint-jobs are **cosmetic and client-side** (stored in your browser); maps and music are **server-side** and shared by everyone in the room.
 
 ## Configuration
 
@@ -37,27 +72,30 @@ Mouse aim and firing need pointer lock, which browsers only grant on a click —
 
 ```
 server.js            authoritative match logic, one Room per lobby code (Node + ws),
-                     plus the /api/levels REST endpoints
-public/level.js      shared level system — validation, perimeter walls, collision +
-                     segment-occlusion math, loaded by BOTH server and client
+                     plus the /api/levels and /api/music REST endpoints
+public/level.js      shared level system — validation, themes, perimeter walls,
+                     collision + segment-occlusion math (loaded by BOTH sides)
+public/music.js      shared track format — validation + Web Audio sequencer
+public/weapons.js    shared weapon model format — part validation + mesh builder
+public/textures.js   shared surface painters + paint-job override loading
 public/index.html    self-contained client (Three.js r128 via CDN)
-public/editor.html   the level editor
-levels/              custom maps saved by the editor (created on first save)
+public/editor.html   level editor          public/music.html     music editor
+public/weapons.html  weapon workshop       public/textures.html  texture studio
+levels/              maps (4 ship in the repo; the editor saves here too)
+music/               custom tracks saved by the music editor
 test.js              integration test: full matches over real sockets
 ```
 
-- **Level editor (`/editor.html`):** a top-down grid where you drag out walls, click to place crates, spawn points, and rifle/armor/ammo pickups, with erase, import/export JSON, and load-from-server. **SAVE TO SERVER** validates the map and writes it to `levels/` — it's instantly selectable from the MAP dropdown in the game menu. The first player to create a room picks its map; everyone joining that room plays it. Perimeter walls are added automatically, and the same validated data drives both client rendering and server raycasting, so custom walls block bullets exactly like built-in ones.
-
-- **Rooms / lobbies:** every player joins a room code (blank = the public `LOBBY`). Each room is a fully independent match with its own map, pickups, scores, and win/reset cycle. On joining, the client sets a shareable `#CODE` URL hash — send that link to a friend and they land in your room. Empty rooms are torn down automatically.
-- **Server-side raycasting (anti-cheat):** clients no longer report hits — they report *shot directions*. The server raycasts each shot itself: fire-rate check, ray-vs-chest-cylinder test against every opponent, then Liang-Barsky segment-vs-AABB occlusion against the level geometry in `public/level.js`. Because that exact module is loaded by both sides, what blocks your view on screen provably blocks bullets on the server. A hacked client can spam packets all day — it cannot manufacture a kill it didn't aim.
-- **Kill-streak announcer:** the server tracks per-player streaks (kills without dying) and multi-kills (kills within 4.5 s). Milestones — DOUBLE/TRIPLE KILL, KILLING SPREE, RAMPAGE, UNSTOPPABLE, GODLIKE, and "X ENDED Y'S SPREE" — are broadcast to the room; the client shows a punch-in banner and speaks the line via the browser's speech synthesis for proper late-90s arena energy.
-- **Client-predicted movement:** each client simulates its own movement/collision and streams position at 20 Hz; remote players are interpolated between snapshots.
+- **Rooms / lobbies:** every player joins a room code (blank = the public `LOBBY`). Each room is an independent match with its own map, music, pickups, mines, scores, and win/reset cycle. On joining, the client sets a shareable `#CODE` URL hash. Empty rooms are torn down automatically.
+- **Server-side raycasting (anti-cheat):** clients report *shot directions*, never hits. The server raycasts each ray itself — fire-rate check, ray-vs-chest-cylinder test, then Liang-Barsky segment-vs-AABB occlusion against the shared level geometry. Shotgun volleys are capped at 6 pellets server-side; mine ownership, arming delay, trigger radius, and blast falloff are all server-authoritative. A hacked client can spam packets all day — it cannot manufacture a kill it didn't aim.
+- **Kill-streak announcer:** DOUBLE/TRIPLE KILL, KILLING SPREE, RAMPAGE, UNSTOPPABLE, GODLIKE, and spree-ending callouts, shown as a banner and spoken via browser speech synthesis.
+- **Client-predicted movement:** each client simulates its own movement/collision and streams position at 20 Hz; remote players are interpolated between snapshots and render the weapon their owner is actually holding.
 
 ### Protocol (JSON over WebSocket)
 
-Client → server: `join {name, room, level}` · `state {x,z,yaw,mv}` · `shoot {d:[x,y,z]}` · `pickup {idx}` · `ping`
+Client → server: `join {name, room, level, music}` · `state {x,z,yaw,mv}` · `shoot {d:[x,y,z]}` or `shoot {p:[[x,y,z],…]}` (shotgun pellets) · `switch {weapon}` · `placeMine {x,z}` · `pickup {idx}` · `ping`
 
-Server → client: `welcome {room, levelName, level}` · `snap {players[]}` (20 Hz) · `respawn` · `shot` · `damage` · `death` · `announce {text,say}` · `pickup` · `joined/left` · `gameOver {board}` · `reset` · `pong`
+Server → client: `welcome {room, levelName, level, musicName, music}` · `snap {players[] incl. weapon}` (20 Hz) · `respawn` · `shot` · `damage` · `death` · `mineArm {id,x,z,owner}` · `mineBlast {id,x,z}` · `announce` · `pickup` · `joined/left` · `gameOver` · `reset` · `pong`
 
 ## Testing
 
@@ -65,38 +103,24 @@ Server → client: `welcome {room, levelName, level}` · `snap {players[]}` (20 
 npm test
 ```
 
-Spins up the server and runs scripted matches over real sockets across two rooms, verifying: room isolation, server-validated aimed hits (exactly 3 pistol hits to kill), rejection of shots aimed away from the target, wall occlusion of perfectly-aimed shots, fire-rate limiting, DOUBLE KILL and KILLING SPREE announcements, win condition, match reset, level-API validation, and that a saved custom map's walls block server-side shots while clear lines hit. (22 assertions, all passing at ship time.)
+Spins up the server and runs scripted matches over real sockets across rooms, verifying room isolation, server-validated hits, wall occlusion, fire-rate limiting, streak announcements, win/reset cycle, the level API, and custom-map raycasting (22 assertions). Note: one test (`welcome carries the custom level`) has a rare timing flake — rerun if it trips.
 
 ## GitHub + hosting
 
 GitHub Pages only serves static files, so it can't run the WebSocket server — host the code on GitHub and run the server on a free Node host that deploys from your repo.
 
-**1. Push to GitHub** (from this folder):
-
-```bash
-git init && git add -A && git commit -m "Facility 64 Online"
-# with the GitHub CLI:
-gh repo create facility64-online --public --source=. --push
-# or create an empty repo on github.com, then:
-git remote add origin git@github.com:YOUR_USER/facility64-online.git
-git branch -M main && git push -u origin main
-```
-
-The included GitHub Actions workflow (`.github/workflows/ci.yml`) runs the full 22-assertion test suite on every push.
-
-**2. Deploy the server from the repo** (pick one):
-
-- **Render** (free tier, easiest — a `render.yaml` blueprint is included): dashboard → **New → Blueprint** → select the repo → Apply. That's it — Render reads `render.yaml`, sets `PORT` automatically, and serves HTTPS so the client's `wss://` upgrade just works. Auto-redeploys on every push to main. (Manual alternative: New → Web Service, build `npm install`, start `npm start`.)
-- **Railway**: New Project → Deploy from GitHub repo — it detects Node and runs `npm start`. Same auto-deploy behaviour.
-- **Fly.io / anything Docker-based**: the included `Dockerfile` works as-is (`fly launch`).
+- **Render** (free tier, easiest — `render.yaml` blueprint included): dashboard → **New → Blueprint** → select the repo → Apply. Auto-redeploys on push.
+- **Railway:** New Project → Deploy from GitHub repo — it detects Node and runs `npm start`.
+- **Fly.io / anything Docker-based:** the included `Dockerfile` works as-is (`fly launch`).
 
 Share the resulting URL (plus `#ROOMCODE` for a private room) and you're playing.
 
-**Caveat — custom maps on free hosts:** most free tiers have an *ephemeral* filesystem, so maps saved via the editor to `levels/` vanish on redeploy or restart. The durable workflow: build your map, EXPORT it from the editor, commit the JSON into `levels/` in the repo, and push — it deploys with the code. (Free Render instances also sleep after idle periods; the first visitor waits ~30s for wake-up.)
+**Caveat — editor saves on free hosts:** most free tiers have an *ephemeral* filesystem, so maps/tracks saved via the editors vanish on redeploy. The durable workflow: EXPORT from the editor, commit the JSON into `levels/` or `music/`, and push — exactly how the four shipped maps work. (Free Render instances also sleep when idle; the first visitor waits ~30s.)
 
 ## Known limitations / next steps
 
-- No lag compensation (rewind): the server raycasts against players' latest positions, so high-ping players lead their shots slightly. A rewind buffer of recent snapshots would fix this.
-- Movement is still client-predicted with only bounds clamping — a modified client could speed-hack. Full server-side movement simulation is the next hardening step.
-- The announcer uses whatever system voice the browser provides; recording real voice lines would sound better.
+- No lag compensation (rewind): high-ping players lead their shots slightly.
+- Movement is client-predicted with only bounds clamping — full server-side movement simulation is the next hardening step.
+- Gyro aim mapping varies by device/orientation; drag-look stays active as the reliable fallback.
+- The announcer uses whatever system voice the browser provides.
 - No jumping. This is authentic.
