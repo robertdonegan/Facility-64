@@ -58,8 +58,8 @@
   #levelSelect, #musicSelect { pointer-events:auto; font-family:inherit; font-size:16px; letter-spacing:3px; color:#e8e3c0; background:rgba(0,0,0,.5); border:2px solid #7a8a5a; padding:10px 16px; width:280px; margin-bottom:14px; text-transform:uppercase; outline:none; cursor:pointer; }
   #levelSelect:focus, #musicSelect:focus { border-color:#c9c27f; }
   #levelSelect option, #musicSelect option { background:#10190f; }
-  #editorLink, #musicEditorLink { pointer-events:auto; color:#7a8a5a; font-size:14px; letter-spacing:3px; margin-top:14px; text-decoration:none; border-bottom:1px dotted #7a8a5a; }
-  #editorLink:hover, #musicEditorLink:hover { color:#c9c27f; border-color:#c9c27f; }
+  #editorLink, #musicEditorLink, #weaponEditorLink { pointer-events:auto; color:#7a8a5a; font-size:14px; letter-spacing:3px; margin-top:14px; text-decoration:none; border-bottom:1px dotted #7a8a5a; }
+  #editorLink:hover, #musicEditorLink:hover, #weaponEditorLink:hover { color:#c9c27f; border-color:#c9c27f; }
   #clickHint { position:absolute; left:50%; top:58%; transform:translateX(-50%); color:#0e150d; background:#c9c27f; font-size:20px; letter-spacing:5px; padding:10px 26px; box-shadow:4px 4px 0 rgba(0,0,0,.6); animation:blink 1.6s steps(2) infinite; }
   #announceBanner { position:absolute; left:50%; top:20%; transform:translateX(-50%); font-size:38px; letter-spacing:8px; color:#ffd75e; text-shadow:3px 3px 0 #000, 0 0 24px rgba(255,180,60,.35); opacity:0; white-space:nowrap; }
   .announce-pop { animation:announcePop 2.8s forwards; }
@@ -143,9 +143,11 @@
   <select id="levelSelect"><option value="FACILITY">MAP: FACILITY</option></select>
   <select id="musicSelect"><option value="FACILITY THEME">MUSIC: FACILITY THEME</option></select>
   <button class="menu-btn" id="startBtn">ENTER ARENA</button>
-  <a id="editorLink" href="/editor.html" target="_blank">OPEN LEVEL EDITOR →</a>
+  <a id="editorLink" href="/editor.html" target="_blank">LEVEL EDITOR →</a>
   &nbsp;&middot;&nbsp;
-  <a id="musicEditorLink" href="/music.html" target="_blank">OPEN MUSIC EDITOR →</a>
+  <a id="musicEditorLink" href="/music.html" target="_blank">MUSIC EDITOR →</a>
+  &nbsp;&middot;&nbsp;
+  <a id="weaponEditorLink" href="/weapons.html" target="_blank">WEAPON WORKSHOP →</a>
   <div id="connStatus"></div>
   <div class="menu-note">
     <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-5 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">RIGHT-CLICK</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">TAB</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">M</span> MUTE MUSIC &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
@@ -170,6 +172,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="level.js"></script>
 <script src="music.js"></script>
+<script src="weapons.js"></script>
 <script>
 /* ============================================================
    FACILITY 64 ONLINE — client
@@ -189,6 +192,8 @@ function fitRenderer(){
   camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
 }
 addEventListener('resize', fitRenderer);
+// weapon look data — defaults, or this browser's custom designs from /weapons.html
+const WEAPON_MODELS = WEAPONRY.loadModels();
 const ambientLight = new THREE.AmbientLight(0x8a9a7a, 0.65);
 scene.add(ambientLight);
 const sun = new THREE.DirectionalLight(0xfff2cc, 0.55);
@@ -813,45 +818,16 @@ function makeAgentMesh(color){
   const armL  = new THREE.Mesh(new THREE.BoxGeometry(.22,.9,.32), suit); armL.position.set(-.58,1.3,0); g.add(armL);
   const armR  = armL.clone(); armR.position.set(.58,1.25,-.28); armR.rotation.x = -1.2; g.add(armR);
 
-  const wPistol = new THREE.Group();
-  const pBody = new THREE.Mesh(new THREE.BoxGeometry(.14,.14,.55), dark); pBody.position.set(.58,1.05,-.65); wPistol.add(pBody);
-  const pFlash = new THREE.Mesh(new THREE.BoxGeometry(.24,.24,.24), new THREE.MeshBasicMaterial({ color:0xffe08a }));
-  pFlash.position.set(.58,1.05,-.98); pFlash.visible = false; wPistol.add(pFlash);
-  wPistol.userData.flash = pFlash;
-
-  const wRifle = new THREE.Group();
-  const rBody = new THREE.Mesh(new THREE.BoxGeometry(.13,.14,1.05), dark); rBody.position.set(.58,1.08,-.95); wRifle.add(rBody);
-  const rStock = new THREE.Mesh(new THREE.BoxGeometry(.11,.16,.3), dark); rStock.position.set(.58,1.08,-.28); wRifle.add(rStock);
-  const rMag = new THREE.Mesh(new THREE.BoxGeometry(.1,.34,.14), dark); rMag.position.set(.58,.82,-.78); wRifle.add(rMag);
-  const rFlash = new THREE.Mesh(new THREE.BoxGeometry(.26,.26,.26), new THREE.MeshBasicMaterial({ color:0xffe08a }));
-  rFlash.position.set(.58,1.08,-1.5); rFlash.visible = false; wRifle.add(rFlash);
-  wRifle.userData.flash = rFlash; wRifle.visible = false;
-
-  const woodR = new THREE.MeshLambertMaterial({ color:0x5a3d20 });
-  const wShotgun = new THREE.Group();
-  const sgBody = new THREE.Mesh(new THREE.BoxGeometry(.14,.15,.85), dark); sgBody.position.set(.58,1.06,-.85); wShotgun.add(sgBody);
-  const sgPump = new THREE.Mesh(new THREE.BoxGeometry(.16,.13,.25), woodR); sgPump.position.set(.58,.95,-1.0); wShotgun.add(sgPump);
-  const sgStock = new THREE.Mesh(new THREE.BoxGeometry(.12,.18,.3), woodR); sgStock.position.set(.58,1.06,-.35); wShotgun.add(sgStock);
-  const sgFlash = new THREE.Mesh(new THREE.BoxGeometry(.3,.3,.3), new THREE.MeshBasicMaterial({ color:0xffe08a }));
-  sgFlash.position.set(.58,1.06,-1.35); sgFlash.visible = false; wShotgun.add(sgFlash);
-  wShotgun.userData.flash = sgFlash; wShotgun.visible = false;
-
-  const wSniper = new THREE.Group();
-  const snBody = new THREE.Mesh(new THREE.BoxGeometry(.1,.12,1.4), dark); snBody.position.set(.58,1.08,-1.05); wSniper.add(snBody);
-  const snScope = new THREE.Mesh(new THREE.CylinderGeometry(.05,.05,.3,8), dark);
-  snScope.rotation.x = Math.PI/2; snScope.position.set(.58,1.22,-.7); wSniper.add(snScope);
-  const snStock = new THREE.Mesh(new THREE.BoxGeometry(.1,.15,.3), woodR); snStock.position.set(.58,1.06,-.3); wSniper.add(snStock);
-  const snFlash = new THREE.Mesh(new THREE.BoxGeometry(.22,.22,.22), new THREE.MeshBasicMaterial({ color:0xffe08a }));
-  snFlash.position.set(.58,1.08,-1.85); snFlash.visible = false; wSniper.add(snFlash);
-  wSniper.userData.flash = snFlash; wSniper.visible = false;
-
-  const wMines = new THREE.Group();
-  const mBody = new THREE.Mesh(new THREE.CylinderGeometry(.16,.18,.1,10), new THREE.MeshLambertMaterial({ color:0x8a2f2f })); mBody.position.set(.58,1.02,-.7); wMines.add(mBody);
-  wMines.visible = false;
-
-  g.add(wPistol, wShotgun, wRifle, wSniper, wMines);
-  g.userData.weapons = { pistol:wPistol, shotgun:wShotgun, rifle:wRifle, sniper:wSniper, mines:wMines };
-  g.userData.flash = pFlash; g.userData.legs = [legL, legR];
+  // held weapons come from the shared part-based model data (customisable in /weapons.html)
+  const weapons = {};
+  for(const w of WEAPONRY.WEAPON_KEYS){
+    const wm = WEAPONRY.buildParts(THREE, WEAPON_MODELS[w].world);
+    wm.visible = w === 'pistol';
+    g.add(wm); weapons[w] = wm;
+  }
+  g.userData.weapons = weapons;
+  g.userData.flash = weapons.pistol.userData.flash || null;
+  g.userData.legs = [legL, legR];
   return g;
 }
 function setAgentWeapon(mesh, weapon){
@@ -1405,60 +1381,15 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 /* ================= SHOOTING (hit detection is server-side) ================= */
+// first-person view-models built from the shared part data (customisable in /weapons.html)
 const gunGroup = new THREE.Group();
 const fpWeapons = {};
-{
-  const dark = new THREE.MeshLambertMaterial({ color:0x232323 });
-
-  const vPistol = new THREE.Group();
-  const grip = new THREE.Mesh(new THREE.BoxGeometry(.09,.22,.14), dark); grip.position.set(.25,-.28,-.55);
-  const slide = new THREE.Mesh(new THREE.BoxGeometry(.1,.1,.5), dark); slide.position.set(.25,-.16,-.75);
-  vPistol.add(grip, slide);
-  const pFlash = new THREE.Mesh(new THREE.BoxGeometry(.16,.16,.16), new THREE.MeshBasicMaterial({ color:0xffe08a }));
-  pFlash.position.set(.25,-.16,-1.05); pFlash.visible = false; vPistol.add(pFlash);
-  vPistol.userData.flash = pFlash;
-
-  const vRifle = new THREE.Group();
-  const rBarrel = new THREE.Mesh(new THREE.BoxGeometry(.08,.1,.85), dark); rBarrel.position.set(.27,-.14,-1.0); vRifle.add(rBarrel);
-  const rBody = new THREE.Mesh(new THREE.BoxGeometry(.1,.16,.4), dark); rBody.position.set(.27,-.18,-.5); vRifle.add(rBody);
-  const rStock = new THREE.Mesh(new THREE.BoxGeometry(.08,.13,.28), dark); rStock.position.set(.27,-.2,-.15); vRifle.add(rStock);
-  const rMag = new THREE.Mesh(new THREE.BoxGeometry(.08,.32,.12), dark); rMag.position.set(.27,-.42,-.55); vRifle.add(rMag);
-  const rGrip = new THREE.Mesh(new THREE.BoxGeometry(.07,.2,.1), dark); rGrip.position.set(.27,-.32,-.85); vRifle.add(rGrip);
-  const rFlash = new THREE.Mesh(new THREE.BoxGeometry(.18,.18,.18), new THREE.MeshBasicMaterial({ color:0xffe08a }));
-  rFlash.position.set(.27,-.14,-1.42); rFlash.visible = false; vRifle.add(rFlash);
-  vRifle.userData.flash = rFlash; vRifle.visible = false;
-
-  const wood = new THREE.MeshLambertMaterial({ color:0x5a3d20 });
-  const vShotgun = new THREE.Group();
-  const sBarrel = new THREE.Mesh(new THREE.BoxGeometry(.11,.11,.8), dark); sBarrel.position.set(.27,-.13,-.9); vShotgun.add(sBarrel);
-  const sTube = new THREE.Mesh(new THREE.BoxGeometry(.09,.09,.7), dark); sTube.position.set(.27,-.23,-.85); vShotgun.add(sTube);
-  const sPump = new THREE.Mesh(new THREE.BoxGeometry(.14,.12,.28), wood); sPump.position.set(.27,-.24,-.95); vShotgun.add(sPump);
-  const sStock = new THREE.Mesh(new THREE.BoxGeometry(.1,.18,.35), wood); sStock.position.set(.27,-.22,-.28); vShotgun.add(sStock);
-  const sFlash = new THREE.Mesh(new THREE.BoxGeometry(.24,.24,.24), new THREE.MeshBasicMaterial({ color:0xffe08a }));
-  sFlash.position.set(.27,-.13,-1.32); sFlash.visible = false; vShotgun.add(sFlash);
-  vShotgun.userData.flash = sFlash; vShotgun.visible = false;
-
-  const vSniper = new THREE.Group();
-  const nBarrel = new THREE.Mesh(new THREE.BoxGeometry(.07,.08,1.25), dark); nBarrel.position.set(.27,-.13,-1.15); vSniper.add(nBarrel);
-  const nBody = new THREE.Mesh(new THREE.BoxGeometry(.1,.15,.45), dark); nBody.position.set(.27,-.17,-.5); vSniper.add(nBody);
-  const nStock = new THREE.Mesh(new THREE.BoxGeometry(.09,.14,.3), wood); nStock.position.set(.27,-.19,-.15); vSniper.add(nStock);
-  const nScope = new THREE.Mesh(new THREE.CylinderGeometry(.045,.045,.32,8), dark);
-  nScope.rotation.x = Math.PI/2; nScope.position.set(.27,-.04,-.55); vSniper.add(nScope);
-  const nFlash = new THREE.Mesh(new THREE.BoxGeometry(.16,.16,.16), new THREE.MeshBasicMaterial({ color:0xffe08a }));
-  nFlash.position.set(.27,-.13,-1.82); nFlash.visible = false; vSniper.add(nFlash);
-  vSniper.userData.flash = nFlash; vSniper.visible = false;
-
-  const vMines = new THREE.Group();
-  const mDevice = new THREE.Mesh(new THREE.CylinderGeometry(.16,.18,.09,10), new THREE.MeshLambertMaterial({ color:0x8a2f2f }));
-  mDevice.position.set(.24,-.24,-.55); vMines.add(mDevice);
-  const mLed = new THREE.Mesh(new THREE.SphereGeometry(.03,6,6), new THREE.MeshBasicMaterial({ color:0xff2a2a }));
-  mLed.position.set(.24,-.185,-.55); vMines.add(mLed);
-  vMines.visible = false;
-
-  gunGroup.add(vPistol, vShotgun, vRifle, vSniper, vMines);
-  fpWeapons.pistol = vPistol; fpWeapons.shotgun = vShotgun; fpWeapons.rifle = vRifle; fpWeapons.sniper = vSniper; fpWeapons.mines = vMines;
-  gunGroup.userData.flash = pFlash;
+for(const w of WEAPONRY.WEAPON_KEYS){
+  const m = WEAPONRY.buildParts(THREE, WEAPON_MODELS[w].fp);
+  m.visible = w === 'pistol';
+  gunGroup.add(m); fpWeapons[w] = m;
 }
+gunGroup.userData.flash = fpWeapons.pistol.userData.flash || null;
 function updateGunModel(){
   for(const w of WEAPON_ORDER) fpWeapons[w].visible = me.weapon === w;
   gunGroup.userData.flash = fpWeapons[me.weapon].userData.flash || null;
