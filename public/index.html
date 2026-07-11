@@ -155,7 +155,7 @@
     <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-5 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">RIGHT-CLICK</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">TAB</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">M</span> MUTE MUSIC &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
     PS5 / XBOX CONTROLLER: <span class="keys">STICKS</span> MOVE + LOOK &nbsp;&middot;&nbsp; <span class="keys">RT</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">LT</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">LB/RB</span> SWITCH &nbsp;&middot;&nbsp; <span class="keys">X</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">L3</span> RUN &nbsp;&middot;&nbsp; <span class="keys">SELECT</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">START</span> PAUSE<br>
     MOBILE (LANDSCAPE): <span class="keys">LEFT THUMB</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">RIGHT THUMB</span> LOOK &nbsp;&middot;&nbsp; <span class="keys">FIRE / RLD / SWAP / SCOPE</span> BUTTONS &nbsp;&middot;&nbsp; <span class="keys">GYRO</span> TILT AIM<br><br>
-    EVERYONE ON THIS SERVER SHARES ONE ARENA. FIRST TO 10 ELIMINATIONS WINS THE ROUND.
+    THE FIRST PLAYER INTO A ROOM PICKS ITS MAP AND MUSIC — EVERYONE JOINING PLAYS THAT. FIRST TO 10 ELIMINATIONS WINS THE ROUND.
   </div>
 </div>
 
@@ -654,6 +654,7 @@ let ws = null, connected = false, joined = false;
 let latestBoard = [];
 let roomCode = 'LOBBY';
 let levelName = 'FACILITY';
+let requestedLevel = null, requestedMusic = null;   // what WE asked for — compared against the welcome
 let pingMs = 0, lastPingSent = 0;
 const connStatus = document.getElementById('connStatus');
 
@@ -661,6 +662,7 @@ function connect(name, room, level, music){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}`);
   connStatus.textContent = 'CONTACTING HQ...';
+  requestedLevel = level; requestedMusic = music;
   ws.onopen = () => {
     connected = true;
     ws.send(JSON.stringify({ t:'join', name, room, level, music }));
@@ -699,6 +701,15 @@ function handleMsg(m){
       levelName = m.levelName || 'FACILITY';
       if(m.level) buildLevel(m.level);
       if(m.music) startMusic(m.music);
+      // a room keeps its first player's map/music — tell the user if their pick was overridden
+      {
+        const norm = s => String(s || '').toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+        if(requestedLevel && norm(requestedLevel) !== norm(m.levelName)){
+          feedSys(`ROOM ${roomCode} ALREADY RUNNING MAP ${m.levelName} — MAP PICKS ONLY APPLY TO NEW ROOMS`);
+        } else if(requestedMusic && m.musicName && norm(requestedMusic) !== norm(m.musicName)){
+          feedSys(`ROOM ${roomCode} ALREADY PLAYING ${m.musicName}`);
+        }
+      }
       try { history.replaceState(null, '', '#' + roomCode); } catch(e) {}
       document.getElementById('waitNotice').textContent =
         `NO OTHER AGENTS IN ROOM ${roomCode} — SHARE THIS PAGE'S LINK (#${roomCode}) TO START THE FIGHT`;
