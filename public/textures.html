@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FACILITY 64 — TEXTURE STUDIO</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a110b; color:#e8e3c0; font-family:"Arial Narrow","Helvetica Neue Condensed",Impact,sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:18px; }
+  h1 { color:#c9c27f; letter-spacing:8px; font-size:30px; text-shadow:3px 3px 0 #000; margin-bottom:2px; }
+  h2 { color:#7a8a5a; letter-spacing:4px; font-size:13px; font-weight:normal; margin-bottom:14px; }
+  #topbar, #tools { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-bottom:10px; align-items:center; }
+  button, select, input { font-family:inherit; letter-spacing:1px; font-size:13px; color:#e8e3c0; background:rgba(20,35,22,.85); border:2px solid #7a8a5a; padding:6px 12px; cursor:pointer; outline:none; text-transform:uppercase; }
+  input[type=color] { width:44px; height:32px; padding:1px; }
+  button:hover { border-color:#c9c27f; color:#c9c27f; }
+  button.active { background:#c9c27f; color:#10190f; border-color:#c9c27f; }
+  button.primary { border-color:#9fd05a; color:#9fd05a; }
+  button.primary:hover { background:#9fd05a; color:#10190f; }
+  button.danger { border-color:#c96a5a; color:#c96a5a; }
+  #main { display:flex; gap:18px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .panel { text-align:center; }
+  .panel .cap { color:#7a8a5a; font-size:12px; letter-spacing:3px; margin-bottom:6px; }
+  #paintWrap, #tileWrap { border:3px solid #4d5a4a; box-shadow:6px 6px 0 rgba(0,0,0,.55); font-size:0; }
+  #paint { image-rendering:pixelated; cursor:crosshair; touch-action:none; }
+  #tile { image-rendering:pixelated; }
+  .swatch { width:26px; height:26px; border:2px solid #3a4538; cursor:pointer; padding:0; }
+  #status { min-height:22px; margin-top:10px; letter-spacing:2px; font-size:14px; color:#9aa87a; text-align:center; }
+  #status.err { color:#ff6a5c; } #status.ok { color:#9fd05a; }
+  #help { color:#5f6f4a; font-size:12px; letter-spacing:1.5px; margin-top:8px; text-align:center; line-height:1.8; max-width:820px; }
+  a { color:#7a8a5a; }
+</style>
+</head>
+<body>
+<h1>TEXTURE STUDIO</h1>
+<h2>FACILITY 64 — PAINT THE WALLS, FLOORS &amp; OBJECTS</h2>
+
+<div id="topbar">
+  <select id="surfaceSel"></select>
+  <button id="resetBtn" class="danger">RESET SURFACE</button>
+  <button id="exportBtn">EXPORT PNG</button>
+  <button id="importBtn">IMPORT PNG</button>
+  <button id="saveBtn" class="primary">SAVE PAINT-JOBS</button>
+  <input type="file" id="importFile" accept="image/*" style="display:none">
+</div>
+
+<div id="tools">
+  <input type="color" id="color" value="#9fd05a">
+  <span id="swatches"></span>
+  <button data-tool="brush" class="active">✎ BRUSH</button>
+  <select id="brushSize">
+    <option value="1">1PX</option>
+    <option value="2" selected>2PX</option>
+    <option value="4">4PX</option>
+    <option value="8">8PX</option>
+    <option value="16">16PX</option>
+  </select>
+  <button data-tool="fill">▣ FILL</button>
+  <button data-tool="pick">⊙ PICK</button>
+  <button id="undoBtn">↩ UNDO</button>
+</div>
+
+<div id="main">
+  <div class="panel">
+    <div class="cap">CANVAS (128PX)</div>
+    <div id="paintWrap"><canvas id="paint"></canvas></div>
+  </div>
+  <div class="panel">
+    <div class="cap">TILED PREVIEW (CHECK SEAMS)</div>
+    <div id="tileWrap"><canvas id="tile" width="384" height="384"></canvas></div>
+  </div>
+</div>
+
+<div id="status">Pick a surface, paint pixels, SAVE — the game uses your paint-jobs on next load.</div>
+<div id="help">
+  Surfaces cover every theme's WALL and FLOOR, plus CRATE faces and the rooftop CITY skyline windows.<br>
+  BRUSH paints, FILL flood-fills the clicked colour region, PICK grabs a colour from the canvas. UNDO steps back (20 levels).<br>
+  RESET repaints the built-in look. Paint-jobs are stored in this browser and are cosmetic — only you see them.
+  <a href="/" target="_blank">OPEN GAME →</a>
+</div>
+
+<script src="textures.js"></script>
+<script>
+const statusEl = document.getElementById('status');
+const setStatus = (m, c) => { statusEl.textContent = m; statusEl.className = c || ''; };
+
+const paint = document.getElementById('paint');
+const pctx = paint.getContext('2d', { willReadFrequently: true });
+const tile = document.getElementById('tile');
+const tctx = tile.getContext('2d');
+tctx.imageSmoothingEnabled = false;
+
+let surface = 'facility.wall';
+let overrides = TEXTURES.loadOverrides();
+let tool = 'brush';
+let undoStack = [];
+
+const DISPLAY = 512;
+
+function texSize(){ return TEXTURES.sizeOf(surface); }
+
+function loadSurface(){
+  const [w, h] = texSize();
+  paint.width = w; paint.height = h;
+  paint.style.width = DISPLAY + 'px';
+  paint.style.height = Math.round(DISPLAY * h / w) + 'px';
+  undoStack = [];
+  if(overrides[surface]){
+    const img = new Image();
+    img.onload = () => { pctx.clearRect(0,0,w,h); pctx.drawImage(img, 0, 0, w, h); drawTile(); };
+    img.src = overrides[surface];
+  } else {
+    TEXTURES.painters[surface](pctx, w, h);
+    drawTile();
+  }
+}
+function drawTile(){
+  const [w, h] = texSize();
+  tctx.clearRect(0, 0, tile.width, tile.height);
+  const cell = tile.width / 3;
+  for(let y=0;y<3;y++) for(let x=0;x<3;x++){
+    tctx.drawImage(paint, 0, 0, w, h, x*cell, y*cell, cell, cell);
+  }
+}
+
+/* ---------- tools ---------- */
+function pushUndo(){
+  const [w, h] = texSize();
+  undoStack.push(pctx.getImageData(0, 0, w, h));
+  if(undoStack.length > 20) undoStack.shift();
+}
+document.getElementById('undoBtn').onclick = () => {
+  const snap = undoStack.pop();
+  if(snap){ pctx.putImageData(snap, 0, 0); drawTile(); }
+};
+
+function hexToRgb(hex){
+  const n = parseInt(hex.slice(1), 16);
+  return [n >> 16 & 255, n >> 8 & 255, n & 255];
+}
+function floodFill(x, y, hex){
+  const [w, h] = texSize();
+  const img = pctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const at = (px, py) => (py * w + px) * 4;
+  const t = at(x, y);
+  const target = [d[t], d[t+1], d[t+2], d[t+3]];
+  const [r, g, b] = hexToRgb(hex);
+  if(target[0] === r && target[1] === g && target[2] === b && target[3] === 255) return;
+  const match = (i) => d[i] === target[0] && d[i+1] === target[1] && d[i+2] === target[2] && d[i+3] === target[3];
+  const stack = [[x, y]];
+  while(stack.length){
+    const [px, py] = stack.pop();
+    if(px < 0 || py < 0 || px >= w || py >= h) continue;
+    const i = at(px, py);
+    if(!match(i)) continue;
+    d[i] = r; d[i+1] = g; d[i+2] = b; d[i+3] = 255;
+    stack.push([px+1,py],[px-1,py],[px,py+1],[px,py-1]);
+  }
+  pctx.putImageData(img, 0, 0);
+}
+
+function canvasPos(e){
+  const r = paint.getBoundingClientRect();
+  const cx = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+  const cy = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+  const [w, h] = texSize();
+  return [
+    Math.max(0, Math.min(w - 1, Math.floor(cx * w / r.width))),
+    Math.max(0, Math.min(h - 1, Math.floor(cy * h / r.height))),
+  ];
+}
+function applyBrush(x, y){
+  const size = +document.getElementById('brushSize').value;
+  pctx.fillStyle = document.getElementById('color').value;
+  pctx.fillRect(x - (size >> 1), y - (size >> 1), size, size);
+}
+
+let painting = false;
+function pointerDown(e){
+  e.preventDefault();
+  const [x, y] = canvasPos(e);
+  if(tool === 'pick'){
+    const d = pctx.getImageData(x, y, 1, 1).data;
+    const hex = '#' + ((d[0] << 16) | (d[1] << 8) | d[2]).toString(16).padStart(6, '0');
+    document.getElementById('color').value = hex;
+    addSwatch(hex);
+    return;
+  }
+  pushUndo();
+  if(tool === 'fill'){ floodFill(x, y, document.getElementById('color').value); drawTile(); return; }
+  painting = true;
+  applyBrush(x, y);
+  drawTile();
+}
+function pointerMove(e){
+  if(!painting) return;
+  e.preventDefault();
+  const [x, y] = canvasPos(e);
+  applyBrush(x, y);
+  drawTile();
+}
+paint.addEventListener('mousedown', pointerDown);
+addEventListener('mousemove', pointerMove);
+addEventListener('mouseup', () => painting = false);
+paint.addEventListener('touchstart', pointerDown, { passive:false });
+paint.addEventListener('touchmove', pointerMove, { passive:false });
+paint.addEventListener('touchend', () => painting = false);
+
+document.querySelectorAll('#tools button[data-tool]').forEach(b => {
+  b.onclick = () => {
+    tool = b.dataset.tool;
+    document.querySelectorAll('#tools button[data-tool]').forEach(x => x.classList.toggle('active', x === b));
+  };
+});
+
+/* palette swatches — seeded with theme staples, grows with picked colours */
+const swatchEl = document.getElementById('swatches');
+const seedColors = ['#5c6b58','#3a4538','#b8a43a','#7a3327','#8a8f93','#6e6152','#3f5c2e','#c9c27f','#232323','#d8c87a'];
+const swatches = new Set();
+function addSwatch(hex){
+  if(swatches.has(hex) || swatches.size >= 14) return;
+  swatches.add(hex);
+  const b = document.createElement('button');
+  b.className = 'swatch'; b.style.background = hex;
+  b.onclick = () => document.getElementById('color').value = hex;
+  swatchEl.appendChild(b);
+}
+seedColors.forEach(addSwatch);
+
+/* ---------- surfaces / persistence ---------- */
+const surfaceSel = document.getElementById('surfaceSel');
+for(const s of TEXTURES.SURFACES){
+  const o = document.createElement('option');
+  o.value = s; o.textContent = s.toUpperCase().replace('.', ' — ');
+  surfaceSel.appendChild(o);
+}
+surfaceSel.onchange = () => { stash(); surface = surfaceSel.value; loadSurface(); };
+
+// keep the current canvas in the in-memory override set when switching surfaces
+function stash(){ overrides[surface] = paint.toDataURL('image/png'); }
+
+document.getElementById('resetBtn').onclick = () => {
+  const [w, h] = texSize();
+  pushUndo();
+  pctx.clearRect(0, 0, w, h);
+  TEXTURES.painters[surface](pctx, w, h);
+  delete overrides[surface];
+  drawTile();
+  setStatus(surface.toUpperCase() + ' RESET TO DEFAULT', 'ok');
+};
+document.getElementById('saveBtn').onclick = () => {
+  stash();
+  try{
+    localStorage.setItem(TEXTURES.STORAGE_KEY, JSON.stringify(overrides));
+    setStatus('SAVED — reload the game tab and your paint-jobs are live', 'ok');
+  }catch(e){ setStatus('SAVE FAILED — storage full?', 'err'); }
+};
+document.getElementById('exportBtn').onclick = () => {
+  const a = document.createElement('a');
+  a.href = paint.toDataURL('image/png');
+  a.download = surface.replace('.', '-') + '.png';
+  a.click();
+};
+document.getElementById('importBtn').onclick = () => document.getElementById('importFile').click();
+document.getElementById('importFile').onchange = e => {
+  const f = e.target.files[0];
+  if(!f) return;
+  const img = new Image();
+  img.onload = () => {
+    const [w, h] = texSize();
+    pushUndo();
+    pctx.clearRect(0, 0, w, h);
+    pctx.drawImage(img, 0, 0, w, h);
+    drawTile();
+    setStatus('IMPORTED — scaled to ' + w + 'x' + h, 'ok');
+    URL.revokeObjectURL(img.src);
+  };
+  img.onerror = () => setStatus('IMPORT FAILED: not an image', 'err');
+  img.src = URL.createObjectURL(f);
+  e.target.value = '';
+};
+
+loadSurface();
+</script>
+</body>
+</html>
