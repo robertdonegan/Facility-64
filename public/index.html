@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>FACILITY 64 ONLINE</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -70,6 +70,21 @@
   #endTitle { font-size:48px; }
   #endBoard { color:#e8e3c0; font-size:20px; letter-spacing:3px; line-height:2; margin-bottom:20px; text-align:center; }
   #pauseMenu, #endMenu { display:none; background:rgba(4,8,5,.88); }
+  /* ---- touch controls (shown only on coarse-pointer devices) ---- */
+  #touchUI { position:fixed; inset:0; display:none; pointer-events:none; z-index:5; }
+  #stickZone { position:absolute; left:0; bottom:0; width:42%; height:70%; pointer-events:auto; touch-action:none; }
+  #lookZone { position:absolute; right:0; bottom:0; width:58%; height:100%; pointer-events:auto; touch-action:none; }
+  #stickBase { position:absolute; width:110px; height:110px; border:2px solid rgba(232,227,192,.5); border-radius:50%; background:rgba(0,0,0,.25); display:none; }
+  #stickNub { position:absolute; left:50%; top:50%; width:46px; height:46px; margin:-23px 0 0 -23px; border-radius:50%; background:rgba(201,194,127,.75); }
+  .tbtn { position:absolute; pointer-events:auto; touch-action:none; border:2px solid rgba(232,227,192,.6); border-radius:50%; background:rgba(0,0,0,.35); color:#e8e3c0; font-family:inherit; letter-spacing:1px; text-shadow:1px 1px 0 #000; display:flex; align-items:center; justify-content:center; user-select:none; -webkit-user-select:none; z-index:6; }
+  .tbtn:active, .tbtn.on { background:rgba(201,194,127,.65); color:#10190f; }
+  #btnFire   { right:26px; bottom:64px; width:96px; height:96px; font-size:20px; }
+  #btnReload { right:140px; bottom:40px; width:56px; height:56px; font-size:15px; }
+  #btnSwap   { right:150px; bottom:110px; width:56px; height:56px; font-size:13px; }
+  #btnScope  { right:36px; bottom:176px; width:56px; height:56px; font-size:12px; }
+  #btnGyro   { right:16px; top:52px; width:56px; height:56px; font-size:12px; }
+  #btnPause  { left:50%; top:8px; transform:translateX(-50%); width:46px; height:46px; font-size:15px; border-radius:8px; }
+  #rotateNotice { position:fixed; inset:0; z-index:30; display:none; align-items:center; justify-content:center; background:#050806; color:#c9c27f; font-size:24px; letter-spacing:5px; text-align:center; }
   #scoreboard { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); background:rgba(4,10,5,.88); border:2px solid #c9c27f; box-shadow:6px 6px 0 rgba(0,0,0,.55); padding:16px 34px 20px; display:none; min-width:340px; }
   #scoreboard h3 { color:#c9c27f; letter-spacing:6px; font-size:20px; margin-bottom:10px; text-align:center; font-weight:normal; }
   .sb-row { display:flex; justify-content:space-between; gap:40px; color:#e8e3c0; font-size:17px; letter-spacing:2px; line-height:1.9; }
@@ -108,6 +123,18 @@
   <div id="scoreboard"></div>
 </div>
 
+<div id="touchUI">
+  <div id="stickZone"><div id="stickBase"><div id="stickNub"></div></div></div>
+  <div id="lookZone"></div>
+  <button class="tbtn" id="btnFire">FIRE</button>
+  <button class="tbtn" id="btnReload">RLD</button>
+  <button class="tbtn" id="btnSwap">SWAP</button>
+  <button class="tbtn" id="btnScope">SCOPE</button>
+  <button class="tbtn" id="btnGyro">GYRO</button>
+  <button class="tbtn" id="btnPause">| |</button>
+</div>
+<div id="rotateNotice">ROTATE DEVICE<br>LANDSCAPE ONLY</div>
+
 <div class="overlay" id="mainMenu">
   <h1>FACILITY&nbsp;64<br><span style="font-size:26px;letter-spacing:18px;color:#9fd05a;">ONLINE</span></h1>
   <h2>MULTIPLAYER DEATHMATCH &middot; LICENCE TO FRAG</h2>
@@ -122,7 +149,8 @@
   <div id="connStatus"></div>
   <div class="menu-note">
     <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-5 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">RIGHT-CLICK</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">TAB</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">M</span> MUTE MUSIC &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
-    PS5 / XBOX CONTROLLER: <span class="keys">STICKS</span> MOVE + LOOK &nbsp;&middot;&nbsp; <span class="keys">RT</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">LT</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">LB/RB</span> SWITCH &nbsp;&middot;&nbsp; <span class="keys">X</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">L3</span> RUN &nbsp;&middot;&nbsp; <span class="keys">SELECT</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">START</span> PAUSE<br><br>
+    PS5 / XBOX CONTROLLER: <span class="keys">STICKS</span> MOVE + LOOK &nbsp;&middot;&nbsp; <span class="keys">RT</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">LT</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">LB/RB</span> SWITCH &nbsp;&middot;&nbsp; <span class="keys">X</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">L3</span> RUN &nbsp;&middot;&nbsp; <span class="keys">SELECT</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">START</span> PAUSE<br>
+    MOBILE (LANDSCAPE): <span class="keys">LEFT THUMB</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">RIGHT THUMB</span> LOOK &nbsp;&middot;&nbsp; <span class="keys">FIRE / RLD / SWAP / SCOPE</span> BUTTONS &nbsp;&middot;&nbsp; <span class="keys">GYRO</span> TILT AIM<br><br>
     EVERYONE ON THIS SERVER SHARES ONE ARENA. FIRST TO 10 ELIMINATIONS WINS THE ROUND.
   </div>
 </div>
@@ -893,6 +921,7 @@ function connect(name, room, level, music){
       document.getElementById('endMenu').style.display = 'none';
       document.getElementById('pauseMenu').style.display = 'none';
       document.getElementById('mainMenu').style.display = 'flex';
+      touchUI.style.display = 'none';
     }
     connStatus.textContent = 'CONNECTION LOST — SERVER OFFLINE?';
     for(const r of remotes.values()) scene.remove(r.mesh);
@@ -1212,7 +1241,141 @@ function getPad(){
 const GP_DEADZONE = 0.18;
 function gpAxis(v){ return Math.abs(v) < GP_DEADZONE ? 0 : v; }
 function gpPressed(pad, i){ const b = pad.buttons[i]; return !!b && (b.pressed || b.value > 0.5); }
+
+/* ================= TOUCH (mobile, landscape) =================
+   Left thumb: virtual stick to move. Right thumb: drag to look, FIRE button to shoot.
+   GYRO toggles device-orientation aim (drag-look always stays available — gyro axis
+   mapping varies by device, so it augments rather than replaces). */
+const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+const touchUI = document.getElementById('touchUI');
+const stickVec = { x:0, z:0 };
+let touchFire = false;
+
+if(isTouch){
+  const stickZone = document.getElementById('stickZone');
+  const lookZone = document.getElementById('lookZone');
+  const stickBase = document.getElementById('stickBase');
+  const stickNub = document.getElementById('stickNub');
+  let stickId = null, stickOrigin = null;
+  let lookId = null, lookLast = null;
+  const STICK_R = 55;
+
+  stickZone.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    stickId = t.identifier;
+    stickOrigin = { x:t.clientX, y:t.clientY };
+    stickBase.style.display = 'block';
+    stickBase.style.left = (t.clientX - STICK_R) + 'px';
+    stickBase.style.top = (t.clientY - STICK_R) + 'px';
+  }, { passive:false });
+  stickZone.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for(const t of e.changedTouches){
+      if(t.identifier !== stickId) continue;
+      let dx = (t.clientX - stickOrigin.x) / STICK_R;
+      let dy = (t.clientY - stickOrigin.y) / STICK_R;
+      const mag = Math.hypot(dx, dy);
+      if(mag > 1){ dx /= mag; dy /= mag; }
+      stickVec.x = dx; stickVec.z = dy;
+      stickNub.style.transform = `translate(${dx*STICK_R*.6}px, ${dy*STICK_R*.6}px)`;
+    }
+  }, { passive:false });
+  const stickEnd = e => {
+    for(const t of e.changedTouches){
+      if(t.identifier !== stickId) continue;
+      stickId = null; stickVec.x = 0; stickVec.z = 0;
+      stickBase.style.display = 'none';
+      stickNub.style.transform = '';
+    }
+  };
+  stickZone.addEventListener('touchend', stickEnd);
+  stickZone.addEventListener('touchcancel', stickEnd);
+
+  lookZone.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if(lookId !== null) return;
+    const t = e.changedTouches[0];
+    lookId = t.identifier;
+    lookLast = { x:t.clientX, y:t.clientY };
+  }, { passive:false });
+  lookZone.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for(const t of e.changedTouches){
+      if(t.identifier !== lookId) continue;
+      const sens = (zoomed ? 0.0022 : 0.0055);
+      me.yaw   -= (t.clientX - lookLast.x) * sens;
+      me.pitch -= (t.clientY - lookLast.y) * sens;
+      me.pitch = Math.max(-1.35, Math.min(1.35, me.pitch));
+      lookLast = { x:t.clientX, y:t.clientY };
+    }
+  }, { passive:false });
+  const lookEnd = e => {
+    for(const t of e.changedTouches) if(t.identifier === lookId){ lookId = null; }
+  };
+  lookZone.addEventListener('touchend', lookEnd);
+  lookZone.addEventListener('touchcancel', lookEnd);
+
+  const bindBtn = (id, down, up) => {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); down(el); }, { passive:false });
+    if(up){
+      el.addEventListener('touchend', e => { e.preventDefault(); up(el); }, { passive:false });
+      el.addEventListener('touchcancel', e => up(el), { passive:false });
+    }
+  };
+  bindBtn('btnFire', () => { touchFire = true; fire(); }, () => touchFire = false);
+  bindBtn('btnReload', () => startReload());
+  bindBtn('btnSwap', () => cycleWeapon(1));
+  bindBtn('btnScope', el => { setZoom(!zoomed); el.classList.toggle('on', zoomed); });
+  bindBtn('btnPause', () => {
+    paused = !paused;
+    document.getElementById('pauseMenu').style.display = paused ? 'flex' : 'none';
+  });
+
+  /* gyro aim — needs a permission grant on iOS, delta-based so any starting pose works */
+  let gyroOn = false, lastGyro = null;
+  function onGyro(e){
+    if(!gyroOn || paused || !started || e.alpha === null) return;
+    if(lastGyro){
+      let dA = e.alpha - lastGyro.a;
+      if(dA > 180) dA -= 360; if(dA < -180) dA += 360;
+      const ang = (screen.orientation && screen.orientation.angle) || 0;
+      const dPitch = (ang === 90 ? (e.beta - lastGyro.b) : ang === 270 ? -(e.beta - lastGyro.b) : -(e.gamma - lastGyro.g));
+      me.yaw += dA * 0.017;
+      me.pitch = Math.max(-1.35, Math.min(1.35, me.pitch + dPitch * 0.017));
+    }
+    lastGyro = { a:e.alpha, b:e.beta, g:e.gamma };
+  }
+  bindBtn('btnGyro', async el => {
+    if(!gyroOn){
+      try{
+        if(typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission){
+          if(await DeviceOrientationEvent.requestPermission() !== 'granted') return;
+        }
+        addEventListener('deviceorientation', onGyro);
+        gyroOn = true; lastGyro = null;
+      }catch(e){}
+    } else {
+      gyroOn = false;
+      removeEventListener('deviceorientation', onGyro);
+    }
+    el.classList.toggle('on', gyroOn);
+  });
+
+  // iOS suspends AudioContext until a gesture lands after creation
+  document.addEventListener('touchend', () => { try{ if(AC && AC.state === 'suspended') AC.resume(); }catch(e){} }, { passive:true });
+
+  const rotateNotice = document.getElementById('rotateNotice');
+  const checkOrientation = () => {
+    rotateNotice.style.display = matchMedia('(orientation: portrait)').matches ? 'flex' : 'none';
+  };
+  addEventListener('orientationchange', () => setTimeout(checkOrientation, 120));
+  addEventListener('resize', checkOrientation);
+  checkOrientation();
+}
 function tryLock(){
+  if(isTouch) return;   // no pointer lock on touch devices — the touch UI drives input
   try{
     const p = canvas.requestPointerLock();
     if(p && p.catch) p.catch(()=>{});
@@ -1220,7 +1383,7 @@ function tryLock(){
 }
 const clickHint = document.getElementById('clickHint');
 function updateClickHint(){
-  const needsLock = started && document.pointerLockElement !== canvas
+  const needsLock = !isTouch && started && document.pointerLockElement !== canvas
     && document.getElementById('endMenu').style.display !== 'flex'
     && document.getElementById('pauseMenu').style.display !== 'flex';
   clickHint.style.display = needsLock ? 'block' : 'none';
@@ -1230,6 +1393,7 @@ canvas.addEventListener('click', () => {
   if(started && document.pointerLockElement !== canvas) tryLock();
 });
 document.addEventListener('pointerlockchange', () => {
+  if(isTouch) return;
   if(document.pointerLockElement === canvas){
     paused = false;
     document.getElementById('pauseMenu').style.display = 'none';
@@ -1410,12 +1574,14 @@ function enterArena(){
   paused = false;
   document.getElementById('mainMenu').style.display = 'none';
   document.getElementById('hud').style.display = 'block';
+  if(isTouch) touchUI.style.display = 'block';
   tryLock();
   updateClickHint();
   updateHUD();
 }
 document.getElementById('resumeBtn').onclick = () => {
   document.getElementById('pauseMenu').style.display = 'none';
+  if(isTouch) paused = false;   // no pointer lock on touch — unpause directly
   tryLock();           // button click is a user gesture, so this succeeds
   updateClickHint();   // fallback hint if the browser still refused
 };
@@ -1461,6 +1627,9 @@ function loop(){
       if(ix === 0 && iz === 0 && pad){
         ix = gpAxis(pad.axes[0]); iz = gpAxis(pad.axes[1]);
       }
+      if(ix === 0 && iz === 0 && isTouch){
+        ix = stickVec.x; iz = stickVec.z;
+      }
       const mag = Math.hypot(ix, iz);
       if(mag > 0){
         const speedScale = Math.min(1, mag);
@@ -1493,7 +1662,7 @@ function loop(){
         const lt = gpPressed(pad, 6);
         if(lt !== gpPrev.lt){ setZoom(lt); gpPrev.lt = lt; }
       }
-      if(mouseDown && WEAPONS[me.weapon].auto) fire();
+      if((mouseDown || touchFire) && WEAPONS[me.weapon].auto) fire();
       tryPickup();
     }
     // net send 20 Hz
