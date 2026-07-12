@@ -42,6 +42,7 @@
       { kind: 'ammo', x: 38, z: -38 }, { kind: 'ammo', x: -38, z: 38 },
       { kind: 'mines', x: -30, z: 0 }, { kind: 'mines', x: 30, z: 0 },
       { kind: 'shotgun', x: 14, z: 32 }, { kind: 'sniper', x: -14, z: -32 },
+      { kind: 'launcher', x: -14, z: 32 },
     ],
   };
 

@@ -152,7 +152,7 @@
   <a id="textureEditorLink" href="/textures.html" target="_blank">TEXTURE STUDIO →</a>
   <div id="connStatus"></div>
   <div class="menu-note">
-    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-5 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">RIGHT-CLICK</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">TAB</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">M</span> MUTE MUSIC &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
+    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-7 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">RIGHT-CLICK</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">TAB</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">M</span> MUTE MUSIC &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
     PS5 / XBOX CONTROLLER: <span class="keys">STICKS</span> MOVE + LOOK &nbsp;&middot;&nbsp; <span class="keys">RT</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">LT</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">LB/RB</span> SWITCH &nbsp;&middot;&nbsp; <span class="keys">X</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">L3</span> RUN &nbsp;&middot;&nbsp; <span class="keys">SELECT</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">START</span> PAUSE<br>
     MOBILE (LANDSCAPE): <span class="keys">LEFT THUMB</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">RIGHT THUMB</span> LOOK &nbsp;&middot;&nbsp; <span class="keys">FIRE / RLD / SWAP / SCOPE</span> BUTTONS &nbsp;&middot;&nbsp; <span class="keys">GYRO</span> TILT AIM<br><br>
     THE FIRST PLAYER INTO A ROOM PICKS ITS MAP AND MUSIC — EVERYONE JOINING PLAYS THAT. FIRST TO 10 ELIMINATIONS WINS THE ROUND.
@@ -299,6 +299,11 @@ function makePickupMesh(kind){
     mesh = new THREE.Mesh(new THREE.BoxGeometry(1.6,.18,.24), new THREE.MeshLambertMaterial({ color:0x1d3a2a }));
     const scope = new THREE.Mesh(new THREE.CylinderGeometry(.07,.07,.4,8), new THREE.MeshLambertMaterial({ color:0x111111 }));
     scope.rotation.z = Math.PI/2; scope.position.y = .16; mesh.add(scope);
+  } else if(kind === 'launcher'){
+    mesh = new THREE.Mesh(new THREE.CylinderGeometry(.15,.15,1.2,10), new THREE.MeshLambertMaterial({ color:0x3a3a42 }));
+    mesh.rotation.z = Math.PI/2;
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(.22,.22,.24,10), new THREE.MeshLambertMaterial({ color:0x26262c }));
+    mesh.add(drum);
   } else if(kind === 'armor'){
     mesh = new THREE.Mesh(new THREE.BoxGeometry(.9,1,.35), new THREE.MeshLambertMaterial({ color:0x2f5fd0 }));
   } else if(kind === 'mines'){
@@ -331,6 +336,27 @@ function spawnBlastFX(x, z){
   })();
 }
 const mineMeshes = new Map(); // id -> mesh
+const nadeMeshes = new Map(); // id -> mesh (grenades in flight, positions from snaps)
+function makeNadeMesh(){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(.16,8,8), new THREE.MeshLambertMaterial({ color:0x2c3a2c }));
+  g.add(body);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(.165,.165,.05,8), new THREE.MeshBasicMaterial({ color:0xc9422f }));
+  g.add(band);
+  return g;
+}
+function syncNades(list){
+  const seen = new Set();
+  for(const n of (list || [])){
+    seen.add(n.id);
+    let mesh = nadeMeshes.get(n.id);
+    if(!mesh){ mesh = makeNadeMesh(); scene.add(mesh); nadeMeshes.set(n.id, mesh); }
+    mesh.position.set(n.x, n.y, n.z);
+  }
+  for(const [id, mesh] of nadeMeshes){
+    if(!seen.has(id)){ scene.remove(mesh); nadeMeshes.delete(id); }
+  }
+}
 
 /* ---- environmental props: deterministic per level (seeded by name+arena) so every
    client renders the same set. Purely cosmetic — no collision, so they hug walls,
@@ -552,14 +578,16 @@ buildLevel(LEVEL.DEFAULT_LEVEL_DATA);
 
 /* ================= WEAPONS ================= */
 const WEAPONS = {
-  pistol:  { name:'P9 SILENCED',       rof:320,  mag:7,  reserve:49, auto:false, spread:0.012, reload:1100, ammoPick:14, snd:[0.14,0.06,1400] },
-  shotgun: { name:'S12 SHOTGUN',       rof:820,  mag:5,  reserve:20, auto:false, spread:0.055, reload:1900, ammoPick:5,  pellets:6, snd:[0.42,0.14,480] },
-  rifle:   { name:'K74 RIFLE',         rof:105,  mag:30, reserve:90, auto:true,  spread:0.03,  reload:1500, ammoPick:30, snd:[0.3,0.1,700] },
-  sniper:  { name:'D5K MARKSMAN',      rof:1350, mag:4,  reserve:12, auto:false, spread:0.001, reload:2100, ammoPick:4,  zoom:true, snd:[0.38,0.16,950] },
-  mines:   { name:'M7 PROXIMITY MINE', rof:650,  mag:2,  reserve:0,  auto:false, spread:0,     reload:0,    ammoPick:0,  isMine:true, cap:5, snd:[0.22,0.08,220] },
+  chop:     { name:'JUDO CHOP',         rof:450,  mag:0,  reserve:0,  auto:false, spread:0,     reload:0,    ammoPick:0,  isMelee:true, recoil:0,   snd:[0.08,0.05,260] },
+  pistol:   { name:'P9 SILENCED',       rof:320,  mag:7,  reserve:49, auto:false, spread:0.012, reload:1100, ammoPick:14, recoil:0.012, snd:[0.14,0.06,1400] },
+  shotgun:  { name:'S12 SHOTGUN',       rof:820,  mag:5,  reserve:20, auto:false, spread:0.055, reload:1900, ammoPick:5,  pellets:6, recoil:0.05, snd:[0.42,0.14,480] },
+  rifle:    { name:'K74 RIFLE',         rof:105,  mag:30, reserve:90, auto:true,  spread:0.03,  reload:1500, ammoPick:30, recoil:0.01, snd:[0.3,0.1,700] },
+  sniper:   { name:'D5K MARKSMAN',      rof:1350, mag:4,  reserve:12, auto:false, spread:0.001, reload:2100, ammoPick:4,  zoom:true, recoil:0.035, snd:[0.38,0.16,950] },
+  launcher: { name:'GL-40 LAUNCHER',    rof:900,  mag:1,  reserve:6,  auto:false, spread:0.004, reload:1500, ammoPick:3,  isProj:true, recoil:0.05, snd:[0.28,0.12,320] },
+  mines:    { name:'M7 PROXIMITY MINE', rof:650,  mag:2,  reserve:0,  auto:false, spread:0,     reload:0,    ammoPick:0,  isMine:true, cap:5, recoil:0, snd:[0.22,0.08,220] },
 };
-const WEAPON_ORDER = ['pistol','shotgun','rifle','sniper','mines'];
-const GUN_WEAPONS = ['rifle','shotgun','sniper'];   // weapon pickups that equip on grab
+const WEAPON_ORDER = ['chop','pistol','shotgun','rifle','sniper','launcher','mines'];
+const GUN_WEAPONS = ['rifle','shotgun','sniper','launcher'];   // weapon pickups that equip on grab
 function freshAmmo(){
   const a = {};
   for(const w of WEAPON_ORDER) a[w] = { mag: w==='pistol' ? WEAPONS.pistol.mag : 0, reserve: w==='pistol' ? WEAPONS.pistol.reserve : 0 };
@@ -567,7 +595,7 @@ function freshAmmo(){
 }
 function freshOwned(){
   const o = {};
-  for(const w of WEAPON_ORDER) o[w] = w === 'pistol';
+  for(const w of WEAPON_ORDER) o[w] = w === 'pistol' || w === 'chop';
   return o;
 }
 
@@ -683,6 +711,8 @@ function connect(name, room, level, music){
     remotes.clear();
     for(const mesh of mineMeshes.values()) scene.remove(mesh);
     mineMeshes.clear();
+    for(const mesh of nadeMeshes.values()) scene.remove(mesh);
+    nadeMeshes.clear();
     stopMusic();
   };
   ws.onerror = () => { connStatus.textContent = 'COULD NOT REACH SERVER'; };
@@ -719,6 +749,7 @@ function handleMsg(m){
       enterArena();
       break;
     case 'snap': {
+      syncNades(m.nades);
       const seen = new Set();
       for(const p of m.players){
         if(p.id === me.id){
@@ -807,7 +838,7 @@ function handleMsg(m){
             updateGunModel();
           }
         } else if(kind === 'ammo'){
-          const target = me.weapon === 'mines' ? 'pistol' : me.weapon;
+          const target = WEAPONS[me.weapon].ammoPick > 0 ? me.weapon : 'pistol';
           me.ammo[target].reserve = Math.min(150, me.ammo[target].reserve + WEAPONS[target].ammoPick);
         } else if(kind === 'mines'){
           if(!me.owned.mines){ me.owned.mines = true; me.ammo.mines.mag = WEAPONS.mines.mag; }
@@ -828,6 +859,13 @@ function handleMsg(m){
       if(mesh){ scene.remove(mesh); mineMeshes.delete(m.id); }
       spawnBlastFX(m.x, m.z);
       shotSound(0.35, 0.25, 140);
+      break;
+    }
+    case 'nadeBlast': {
+      const mesh = nadeMeshes.get(m.id);
+      if(mesh){ scene.remove(mesh); nadeMeshes.delete(m.id); }
+      spawnBlastFX(m.x, m.z);
+      shotSound(0.4, 0.3, 120);
       break;
     }
     case 'joined': feedSys(`${m.name} ENTERED THE ARENA`); break;
@@ -859,6 +897,8 @@ function handleMsg(m){
       pickupActive.forEach((a,i)=> pickupMeshes[i].visible = a);
       for(const mesh of mineMeshes.values()) scene.remove(mesh);
       mineMeshes.clear();
+      for(const mesh of nadeMeshes.values()) scene.remove(mesh);
+      nadeMeshes.clear();
       document.getElementById('endMenu').style.display = 'none';
       document.getElementById('hud').style.display = 'block';
       document.getElementById('killfeed').innerHTML = '';
@@ -909,9 +949,9 @@ function updateHUD(){
   const w = WEAPONS[me.weapon];
   const a = me.ammo[me.weapon];
   document.getElementById('weaponName').textContent = w.name;
-  document.getElementById('ammoCount').textContent = w.isMine ? `${a.mag} ARMED` : `${a.mag} | ${a.reserve}`;
+  document.getElementById('ammoCount').textContent = w.isMelee ? '—' : w.isMine ? `${a.mag} ARMED` : `${a.mag} | ${a.reserve}`;
   const rh = document.getElementById('reloadHint');
-  if(w.isMine) rh.style.visibility='hidden';
+  if(w.isMine || w.isMelee) rh.style.visibility='hidden';
   else if(me.reloading){ rh.textContent='RELOADING...'; rh.style.visibility='visible'; }
   else if(a.mag <= 2 && a.reserve > 0){ rh.textContent='PRESS R TO RELOAD'; rh.style.visibility='visible'; }
   else rh.style.visibility='hidden';
@@ -946,11 +986,13 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if(e.code === 'Tab' && started){ e.preventDefault(); showScoreboard(true); }
   if(e.code === 'KeyR') startReload();
-  if(e.code === 'Digit1') trySwitchWeapon('pistol');
-  if(e.code === 'Digit2') trySwitchWeapon('shotgun');
-  if(e.code === 'Digit3') trySwitchWeapon('rifle');
-  if(e.code === 'Digit4') trySwitchWeapon('sniper');
-  if(e.code === 'Digit5') trySwitchWeapon('mines');
+  if(e.code === 'Digit1') trySwitchWeapon('chop');
+  if(e.code === 'Digit2') trySwitchWeapon('pistol');
+  if(e.code === 'Digit3') trySwitchWeapon('shotgun');
+  if(e.code === 'Digit4') trySwitchWeapon('rifle');
+  if(e.code === 'Digit5') trySwitchWeapon('sniper');
+  if(e.code === 'Digit6') trySwitchWeapon('launcher');
+  if(e.code === 'Digit7') trySwitchWeapon('mines');
   if(e.code === 'KeyM') toggleMusicMute();
 });
 addEventListener('keyup', e => {
@@ -1187,7 +1229,7 @@ let gunKick = 0;
 
 function startReload(){
   const w = WEAPONS[me.weapon];
-  if(w.isMine) return;
+  if(w.isMine || w.isMelee) return;
   const a = me.ammo[me.weapon];
   if(me.reloading || a.mag >= w.mag || a.reserve <= 0 || !me.alive) return;
   me.reloading = true;
@@ -1213,11 +1255,6 @@ function fire(){
     return;
   }
 
-  if(a.mag <= 0){ startReload(); return; }
-  me.lastShot = now; a.mag--; gunKick = w.pellets ? 1.6 : 1;
-  shotSound(...w.snd);
-  const f = gunGroup.userData.flash; f.visible = true; setTimeout(()=>f.visible=false, 45);
-
   // spread is applied client-side, then the exact direction(s) are sent —
   // the server raycasts each ray against players + level geometry
   const spreadDir = () => {
@@ -1229,7 +1266,23 @@ function fire(){
     dir.normalize();
     return [+dir.x.toFixed(4), +dir.y.toFixed(4), +dir.z.toFixed(4)];
   };
-  if(w.pellets) send({ t:'shoot', p: Array.from({length:w.pellets}, spreadDir) });
+
+  if(w.isMelee){
+    me.lastShot = now; gunKick = 1.4;
+    shotSound(...w.snd);
+    send({ t:'shoot', d: spreadDir() });   // server clamps melee reach
+    return;
+  }
+
+  if(a.mag <= 0){ startReload(); return; }
+  me.lastShot = now; a.mag--; gunKick = w.pellets ? 1.6 : 1;
+  shotSound(...w.snd);
+  const f = gunGroup.userData.flash;
+  if(f){ f.visible = true; setTimeout(()=>f.visible=false, 45); }
+  if(w.recoil){ me.pitch = Math.min(1.35, me.pitch + w.recoil); }
+
+  if(w.isProj) send({ t:'launch', d: spreadDir() });
+  else if(w.pellets) send({ t:'shoot', p: Array.from({length:w.pellets}, spreadDir) });
   else send({ t:'shoot', d: spreadDir() });
 
   updateHUD();

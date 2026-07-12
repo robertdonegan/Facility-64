@@ -19,12 +19,38 @@
    validateModels so a bad import can never break rendering. */
 (function (root) {
 
-  const WEAPON_KEYS = ['pistol', 'shotgun', 'rifle', 'sniper', 'mines'];
+  const WEAPON_KEYS = ['chop', 'pistol', 'shotgun', 'rifle', 'sniper', 'launcher', 'mines'];
   const SHAPES = ['box', 'cyl', 'sphere', 'cone'];
   const LIMITS = { parts: 40 };
   const STORAGE_KEY = 'f64-weapons';
 
   const DEFAULT_MODELS = {
+    chop: {
+      fp: [
+        { shape:'box', size:[.1,.09,.26], pos:[.22,-.26,-.5], rot:[0,0,-12], color:'#d8a878' },
+        { shape:'box', size:[.1,.09,.26], pos:[-.22,-.28,-.44], rot:[0,0,12], color:'#d8a878' },
+        { shape:'box', size:[.11,.05,.1], pos:[.22,-.22,-.62], color:'#c99868' },
+        { shape:'box', size:[.11,.05,.1], pos:[-.22,-.24,-.56], color:'#c99868' },
+      ],
+      world: [
+        { shape:'box', size:[.12,.1,.24], pos:[.58,1.05,-.5], color:'#d8a878' },
+      ],
+    },
+    launcher: {
+      fp: [
+        { shape:'cyl', size:[.09,.09,.62], pos:[.27,-.18,-.75], rot:[90,0,0], color:'#3a3a42' },
+        { shape:'cyl', size:[.12,.12,.16], pos:[.27,-.18,-.5], rot:[90,0,0], color:'#26262c' },
+        { shape:'box', size:[.09,.16,.3], pos:[.27,-.24,-.25], color:'#4a3a2a' },
+        { shape:'box', size:[.07,.14,.08], pos:[.27,-.3,-.55], color:'#26262c' },
+        { shape:'box', size:[.2,.2,.2], pos:[.27,-.18,-1.12], color:'#ffe08a', flash:true },
+      ],
+      world: [
+        { shape:'cyl', size:[.1,.1,.8], pos:[.58,1.06,-.8], rot:[90,0,0], color:'#3a3a42' },
+        { shape:'cyl', size:[.13,.13,.18], pos:[.58,1.06,-.5], rot:[90,0,0], color:'#26262c' },
+        { shape:'box', size:[.1,.16,.26], pos:[.58,1.04,-.3], color:'#4a3a2a' },
+        { shape:'box', size:[.26,.26,.26], pos:[.58,1.06,-1.28], color:'#ffe08a', flash:true },
+      ],
+    },
     pistol: {
       fp: [
         { shape:'box', size:[.09,.22,.14], pos:[.25,-.28,-.55], color:'#232323' },
@@ -100,7 +126,8 @@
     const clean = {};
     for (const key of WEAPON_KEYS) {
       const w = data[key];
-      if (!w || typeof w !== 'object') return fail('missing weapon: ' + key);
+      // designs saved before a weapon existed just get its default look
+      if (!w || typeof w !== 'object') { clean[key] = DEFAULT_MODELS[key]; continue; }
       clean[key] = {};
       for (const view of ['fp', 'world']) {
         const parts = w[view];

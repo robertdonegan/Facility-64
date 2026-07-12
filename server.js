@@ -21,13 +21,17 @@ const RESET_MS = 8000;
 const MULTI_KILL_WINDOW_MS = 4500;
 
 const EYE_Y = 1.6, CHEST_Y = 1.3, HIT_RADIUS = 0.75, MAX_RANGE = 60;
-const WEAPON_DMG = { pistol: 34, rifle: 16, shotgun: 12, sniper: 80 };
-const WEAPON_ROF = { pistol: 300, rifle: 95, shotgun: 780, sniper: 1300 };   // ms, small tolerance vs client
+const WEAPON_DMG = { chop: 50, pistol: 34, rifle: 16, shotgun: 12, sniper: 80 };
+const WEAPON_ROF = { chop: 450, pistol: 300, rifle: 95, shotgun: 780, sniper: 1300, launcher: 850 };   // ms, small tolerance vs client
 const SHOTGUN_MAX_PELLETS = 6;
 const SHOTGUN_MAX_RANGE = 26;      // pellets fall off hard past mid range
+const CHOP_RANGE = 2.2;            // melee reach
 
 const MINE_DMG = 95, MINE_BLAST_R = 4.2, MINE_TRIGGER_R = 1.6;
 const MINE_ARM_MS = 500, MINE_PLACE_COOLDOWN_MS = 500, MAX_MINES_PER_ROOM = 24;
+
+const NADE_SPEED = 17, NADE_GRAVITY = 22, NADE_FUSE_MS = 2000;
+const NADE_DMG = 90, NADE_BLAST_R = 5, MAX_NADES_PER_ROOM = 12;
 
 /* ---------- custom levels ---------- */
 const LEVELS_DIR = path.join(__dirname, 'levels');
@@ -165,6 +169,8 @@ class Room {
     this.pickups = this.level.PICKUPS.map((p, i) => ({ ...p, idx: i, active: true, respawnAt: 0 }));
     this.mines = [];
     this.nextMineId = 1;
+    this.nades = [];
+    this.nextNadeId = 1;
   }
 
   broadcast(obj, exceptId = null) {
@@ -192,7 +198,7 @@ class Room {
     const [x, z] = this.farSpawn();
     p.x = x; p.z = z; p.yaw = Math.atan2(-x, -z);
     p.hp = 100; p.armor = 0; p.alive = true; p.weapon = 'pistol';
-    p.owned = { pistol: true, rifle: false, shotgun: false, sniper: false, mines: false };
+    p.owned = { chop: true, pistol: true, rifle: false, shotgun: false, sniper: false, launcher: false, mines: false };
     this.broadcast({ t: 'respawn', id: p.id, x, z, yaw: p.yaw });
   }
 
@@ -276,9 +282,59 @@ class Room {
         const hit = this.raycastRay(shooter, d, SHOTGUN_MAX_RANGE);
         if (hit) this.applyDamage(hit, shooter, dmg);
       }
+    } else if (shooter.weapon === 'chop') {
+      const hit = this.raycastRay(shooter, m.d, CHOP_RANGE);
+      if (hit) this.applyDamage(hit, shooter, dmg);
     } else {
       const hit = this.raycastRay(shooter, m.d, MAX_RANGE);
       if (hit) this.applyDamage(hit, shooter, dmg);
+    }
+  }
+
+  /* -------- grenades (server-simulated projectiles) -------- */
+  handleLaunch(shooter, d) {
+    if (!shooter.alive || this.gameOver) return;
+    if (shooter.weapon !== 'launcher' || !shooter.owned || !shooter.owned.launcher) return;
+    const nowMs = Date.now();
+    if (nowMs - shooter.lastShot < (WEAPON_ROF.launcher || 850)) return;
+    if (this.nades.length >= MAX_NADES_PER_ROOM) return;
+    if (!Array.isArray(d) || d.length !== 3 || d.some(v => !isFinite(+v))) return;
+    let [dx, dy, dz] = d.map(Number);
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-6) return;
+    dx /= len; dy /= len; dz /= len;
+    shooter.lastShot = nowMs;
+    this.broadcast({ t: 'shot', id: shooter.id, w: 'launcher' }, shooter.id);
+    this.nades.push({
+      id: this.nextNadeId++, ownerId: shooter.id,
+      x: shooter.x + dx * 0.6, y: EYE_Y - 0.2, z: shooter.z + dz * 0.6,
+      vx: dx * NADE_SPEED, vy: dy * NADE_SPEED + 2.5, vz: dz * NADE_SPEED,
+      explodeAt: nowMs + NADE_FUSE_MS,
+    });
+  }
+
+  tickNades(nowMs, dt) {
+    for (let i = this.nades.length - 1; i >= 0; i--) {
+      const n = this.nades[i];
+      n.vy -= NADE_GRAVITY * dt;
+      // axis-separated moves so wall hits reflect the right component
+      const nx = n.x + n.vx * dt;
+      if (this.level.collides(nx, n.z, 0.25)) n.vx *= -0.45; else n.x = nx;
+      const nz = n.z + n.vz * dt;
+      if (this.level.collides(n.x, nz, 0.25)) n.vz *= -0.45; else n.z = nz;
+      n.y += n.vy * dt;
+      if (n.y < 0.15 && n.vy < 0) { n.y = 0.15; n.vy *= -0.45; n.vx *= 0.75; n.vz *= 0.75; }
+      if (nowMs < n.explodeAt) continue;
+      this.nades.splice(i, 1);
+      this.broadcast({ t: 'nadeBlast', id: n.id, x: +n.x.toFixed(2), z: +n.z.toFixed(2) });
+      const owner = this.players.get(n.ownerId);
+      for (const p of this.players.values()) {
+        if (!p.alive) continue;
+        const dist = Math.hypot(p.x - n.x, p.z - n.z);
+        if (dist > NADE_BLAST_R) continue;
+        const dmg = NADE_DMG * (1 - dist / NADE_BLAST_R);
+        if (dmg > 3) this.applyDamage(p, owner || p, dmg);
+      }
     }
   }
 
@@ -342,6 +398,7 @@ class Room {
     this.gameOver = false;
     this.pickups = this.level.PICKUPS.map((p, i) => ({ ...p, idx: i, active: true, respawnAt: 0 }));
     this.mines = [];
+    this.nades = [];
     for (const p of this.players.values()) {
       p.score = 0; p.streak = 0; p.multi = 0;
       this.spawnPlayer(p);
@@ -357,9 +414,11 @@ class Room {
       }
     }
     this.tickMines(nowMs);
+    this.tickNades(nowMs, TICK_MS / 1000);
     if (this.players.size === 0) return;
     this.broadcast({
       t: 'snap',
+      nades: this.nades.map(n => ({ id: n.id, x: +n.x.toFixed(2), y: +n.y.toFixed(2), z: +n.z.toFixed(2) })),
       players: [...this.players.values()].map(p => ({
         id: p.id, name: p.name, color: p.color,
         x: +p.x.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(3),
@@ -402,7 +461,7 @@ wss.on('connection', (ws) => {
         color: COLORS[(nextId - 2) % COLORS.length],
         x: 0, z: 0, yaw: 0, hp: 100, armor: 0, score: 0, streak: 0, multi: 0, lastKillAt: 0,
         alive: false, weapon: 'pistol', lastShot: 0, lastMine: 0,
-        owned: { pistol: true, rifle: false, shotgun: false, sniper: false, mines: false },
+        owned: { chop: true, pistol: true, rifle: false, shotgun: false, sniper: false, launcher: false, mines: false },
       };
       room.players.set(me.id, me);
       ws.send(JSON.stringify({
@@ -442,12 +501,15 @@ wss.on('connection', (ws) => {
       case 'placeMine':
         room.placeMine(me, m.x, m.z);
         break;
+      case 'launch':
+        room.handleLaunch(me, m.d);
+        break;
       case 'pickup': {
         if (!me.alive || room.gameOver) break;
         const p = room.pickups[+m.idx];
         if (!p || !p.active) break;
         if ((p.x - me.x) ** 2 + (p.z - me.z) ** 2 > 2.5) break;
-        if (p.kind === 'rifle' || p.kind === 'shotgun' || p.kind === 'sniper') { me.weapon = p.kind; me.owned[p.kind] = true; }
+        if (p.kind === 'rifle' || p.kind === 'shotgun' || p.kind === 'sniper' || p.kind === 'launcher') { me.weapon = p.kind; me.owned[p.kind] = true; }
         else if (p.kind === 'armor') { if (me.armor >= 100) break; me.armor = 100; }
         else if (p.kind === 'mines') { me.owned.mines = true; }
         // ammo/mine count is client-side flavour; server just cycles the pickup
