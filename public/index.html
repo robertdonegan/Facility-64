@@ -322,6 +322,59 @@ function makeMineMesh(){
   g.userData.led = led; g.userData.blink = 0;
   return g;
 }
+function spawnImpactFX(x, y, z, color){
+  const m = new THREE.Mesh(new THREE.SphereGeometry(.06,5,5), new THREE.MeshBasicMaterial({ color, transparent:true, opacity:.95 }));
+  m.position.set(x, y, z);
+  scene.add(m);
+  const start = performance.now();
+  (function anim(){
+    const t = (performance.now()-start)/220;
+    if(t >= 1){ scene.remove(m); return; }
+    m.scale.setScalar(1 + t*3.5);
+    m.material.opacity = .95*(1-t);
+    requestAnimationFrame(anim);
+  })();
+}
+
+/* where does this ray first strike the level? (cosmetic mirror of the server maths:
+   Liang-Barsky entry vs each wall AABB with a height check, plus floor/ceiling planes) */
+function rayHitLevel(ox, oy, oz, dx, dy, dz, tMax){
+  let best = Infinity;
+  for(const c of LEVELINST.COLLIDERS){
+    let t0 = 0, t1 = tMax, ok = true;
+    const p = [-dx, dx, -dz, dz];
+    const q = [ox - c.minX, c.maxX - ox, oz - c.minZ, c.maxZ - oz];
+    for(let i = 0; i < 4; i++){
+      if(Math.abs(p[i]) < 1e-9){ if(q[i] < 0){ ok = false; break; } }
+      else {
+        const t = q[i] / p[i];
+        if(p[i] < 0){ if(t > t1){ ok = false; break; } if(t > t0) t0 = t; }
+        else { if(t < t0){ ok = false; break; } if(t < t1) t1 = t; }
+      }
+    }
+    if(!ok || t0 <= 0 || t0 >= best) continue;
+    const y = oy + dy * t0;
+    if(y >= 0 && y <= c.h) best = t0;
+  }
+  if(dy < -1e-9){ const t = -oy / dy; if(t > 0 && t < best && t <= tMax) best = t; }
+  else if(dy > 1e-9 && (THEMES[LEVELINST.theme] || THEMES.facility).hasCeiling){
+    const t = (5 - oy) / dy; if(t > 0 && t < best && t <= tMax) best = t;
+  }
+  return best === Infinity ? null : best;
+}
+function rayHitRemote(ox, oy, oz, dx, dy, dz, tMax){
+  let best = Infinity;
+  for(const r of remotes.values()){
+    if(!r.alive) continue;
+    const tox = r.x - ox, toy = 1.3 - oy, toz = r.z - oz;
+    const proj = tox*dx + toy*dy + toz*dz;
+    if(proj < 0.5 || proj > tMax) continue;
+    const cx = dx*proj - tox, cy = dy*proj - toy, cz = dz*proj - toz;
+    if(Math.hypot(cx, cy, cz) < 0.75 && proj < best) best = proj;
+  }
+  return best === Infinity ? null : best;
+}
+
 function spawnBlastFX(x, z){
   const flash = new THREE.Mesh(new THREE.SphereGeometry(0.4,8,8), new THREE.MeshBasicMaterial({ color:0xffb84a, transparent:true, opacity:0.9 }));
   flash.position.set(x, .6, z);
@@ -811,6 +864,11 @@ function handleMsg(m){
         hm.style.opacity = 1; hm.style.transition='none';
         requestAnimationFrame(()=>{ hm.style.transition='opacity .3s'; hm.style.opacity = 0; });
       }
+      // everyone sees a red puff on the victim
+      if(m.id !== me.id){
+        const r = remotes.get(m.id);
+        if(r) spawnImpactFX(r.x, 1.3, r.z, 0xb02020);
+      }
       break;
     case 'death':
       killFeed(nameOf(m.killer), nameOf(m.victim));
@@ -1267,10 +1325,25 @@ function fire(){
     return [+dir.x.toFixed(4), +dir.y.toFixed(4), +dir.z.toFixed(4)];
   };
 
+  // cosmetic impact: where would this ray strike (level surface or a player)?
+  const shotImpactFX = (d, tMax) => {
+    const [dx, dy, dz] = d;
+    const ox = me.x, oy = 1.6, oz = me.z;
+    const tW = rayHitLevel(ox, oy, oz, dx, dy, dz, tMax);
+    const tP = rayHitRemote(ox, oy, oz, dx, dy, dz, tMax);
+    if(tP !== null && (tW === null || tP < tW)){
+      spawnImpactFX(ox+dx*tP, oy+dy*tP, oz+dz*tP, 0xc03030);
+    } else if(tW !== null){
+      spawnImpactFX(ox+dx*tW, oy+dy*tW, oz+dz*tW, 0xd8cf9a);
+    }
+  };
+
   if(w.isMelee){
     me.lastShot = now; gunKick = 1.4;
     shotSound(...w.snd);
-    send({ t:'shoot', d: spreadDir() });   // server clamps melee reach
+    const d = spreadDir();
+    send({ t:'shoot', d });   // server clamps melee reach
+    shotImpactFX(d, 2.2);
     return;
   }
 
@@ -1281,9 +1354,17 @@ function fire(){
   if(f){ f.visible = true; setTimeout(()=>f.visible=false, 45); }
   if(w.recoil){ me.pitch = Math.min(1.35, me.pitch + w.recoil); }
 
-  if(w.isProj) send({ t:'launch', d: spreadDir() });
-  else if(w.pellets) send({ t:'shoot', p: Array.from({length:w.pellets}, spreadDir) });
-  else send({ t:'shoot', d: spreadDir() });
+  if(w.isProj){
+    send({ t:'launch', d: spreadDir() });
+  } else if(w.pellets){
+    const pellets = Array.from({length:w.pellets}, spreadDir);
+    send({ t:'shoot', p: pellets });
+    for(const d of pellets) shotImpactFX(d, 26);
+  } else {
+    const d = spreadDir();
+    send({ t:'shoot', d });
+    shotImpactFX(d, 60);
+  }
 
   updateHUD();
   if(a.mag === 0) startReload();
