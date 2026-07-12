@@ -45,7 +45,7 @@
     ],
   };
 
-  const PICKUP_KINDS = ['rifle', 'shotgun', 'sniper', 'armor', 'ammo', 'mines'];
+  const PICKUP_KINDS = ['rifle', 'shotgun', 'sniper', 'launcher', 'armor', 'ammo', 'mines'];
   const THEMES = ['facility', 'jungle', 'office', 'church', 'rooftop'];
   const LIMITS = { arenaMin: 16, arenaMax: 80, blocks: 300, spawns: 32, pickups: 32, nameLen: 16 };
 
@@ -143,7 +143,110 @@
     return { name: data.name || 'UNTITLED', theme: THEMES.includes(data.theme) ? data.theme : 'facility', ARENA, BLOCKS, SPAWNS, PICKUPS, COLLIDERS, collides, segBlocked };
   }
 
-  const LEVEL = { DEFAULT_LEVEL_DATA, makeLevel, validateLevel, LIMITS, THEMES };
+  /* Procedurally generate a full level: an NxN room grid carved with a randomized
+     Kruskal spanning tree (every room reachable), extra open edges for loops, walls
+     with door gaps, then crates/spawns/pickups collision-checked against the result.
+     Pure data — used by the editor's GENERATE button AND by the server for the
+     RANDOM map option. */
+  function generateArena(opts) {
+    opts = opts || {};
+    const arena = Math.max(LIMITS.arenaMin, Math.min(LIMITS.arenaMax, Math.round(opts.arena || 44)));
+    const rng = opts.rng || Math.random;
+    const theme = THEMES.includes(opts.theme) ? opts.theme : THEMES[Math.floor(rng() * THEMES.length)];
+    const N = Math.max(2, Math.min(6, Math.round((arena * 2) / 22)));
+    const cell = (arena * 2) / N;
+    const ox = -arena, oz = -arena;
+    const cellCenter = (cx, cz) => [ox + (cx + 0.5) * cell, oz + (cz + 0.5) * cell];
+    const idx = (cx, cz) => cz * N + cx;
+
+    const parent = Array.from({ length: N * N }, (_, i) => i);
+    const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+    const union = (a, b) => { const ra = find(a), rb = find(b); if (ra === rb) return false; parent[ra] = rb; return true; };
+
+    const edges = [];
+    for (let cz = 0; cz < N; cz++) for (let cx = 0; cx < N; cx++) {
+      if (cx < N - 1) edges.push({ a: idx(cx, cz), b: idx(cx + 1, cz), cx, cz, dir: 'v' });
+      if (cz < N - 1) edges.push({ a: idx(cx, cz), b: idx(cx, cz + 1), cx, cz, dir: 'h' });
+    }
+    for (let i = edges.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [edges[i], edges[j]] = [edges[j], edges[i]]; }
+
+    const openEdges = new Set();
+    for (const e of edges) {
+      const key = e.dir + ':' + e.cx + ',' + e.cz;
+      if (union(e.a, e.b) || rng() < 0.3) openEdges.add(key);
+    }
+
+    const blocks = [];
+    const THICK = 1.2, HEIGHT = 5, DOORW = 4;
+    function addWallWithDoor(orientation, fixedCoord, from, to) {
+      const span = to - from;
+      const gapW = Math.min(DOORW, span * 0.5);
+      const gapCenter = from + span * 0.3 + rng() * span * 0.4;
+      const gapLo = gapCenter - gapW / 2, gapHi = gapCenter + gapW / 2;
+      if (gapLo - from > 1) {
+        const len = gapLo - from, c = (from + gapLo) / 2;
+        blocks.push(orientation === 'v' ? [fixedCoord, c, THICK, len, HEIGHT, 'wall'] : [c, fixedCoord, len, THICK, HEIGHT, 'wall']);
+      }
+      if (to - gapHi > 1) {
+        const len = to - gapHi, c = (gapHi + to) / 2;
+        blocks.push(orientation === 'v' ? [fixedCoord, c, THICK, len, HEIGHT, 'wall'] : [c, fixedCoord, len, THICK, HEIGHT, 'wall']);
+      }
+    }
+    for (let cz = 0; cz < N; cz++) for (let cx = 0; cx < N; cx++) {
+      if (cx < N - 1 && !openEdges.has('v:' + cx + ',' + cz)) {
+        addWallWithDoor('v', ox + (cx + 1) * cell, oz + cz * cell, oz + (cz + 1) * cell);
+      }
+      if (cz < N - 1 && !openEdges.has('h:' + cx + ',' + cz)) {
+        addWallWithDoor('h', oz + (cz + 1) * cell, ox + cx * cell, ox + (cx + 1) * cell);
+      }
+    }
+
+    for (let cz = 0; cz < N; cz++) for (let cx = 0; cx < N; cx++) {
+      if (rng() < 0.45) {
+        const [ccx, ccz] = cellCenter(cx, cz);
+        blocks.push([ccx + (rng() - 0.5) * cell * 0.5, ccz + (rng() - 0.5) * cell * 0.5, 2.2, 2.2, 2.2, 'crate']);
+      }
+    }
+
+    const testLevel = makeLevel({ arena, blocks, spawns: [[0, 0], [1, 1]], pickups: [] });
+    function randomFreeSpot(cx, cz, tries) {
+      for (let i = 0; i < tries; i++) {
+        const [ccx, ccz] = cellCenter(cx, cz);
+        const x = Math.max(-(arena - 1), Math.min(arena - 1, ccx + (rng() - 0.5) * cell * 0.55));
+        const z = Math.max(-(arena - 1), Math.min(arena - 1, ccz + (rng() - 0.5) * cell * 0.55));
+        if (!testLevel.collides(x, z, 0.8)) return [Math.round(x), Math.round(z)];
+      }
+      return null;
+    }
+
+    const cellOrder = [];
+    for (let cz = 0; cz < N; cz++) for (let cx = 0; cx < N; cx++) cellOrder.push([cx, cz]);
+    for (let i = cellOrder.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [cellOrder[i], cellOrder[j]] = [cellOrder[j], cellOrder[i]]; }
+
+    const spawns = [];
+    const maxSpawns = Math.min(16, cellOrder.length);
+    for (let i = 0; i < maxSpawns; i++) {
+      const spot = randomFreeSpot(cellOrder[i][0], cellOrder[i][1], 12);
+      if (spot) spawns.push(spot);
+    }
+    if (spawns.length < 2) { spawns.push([-(arena - 2), -(arena - 2)]); spawns.push([arena - 2, arena - 2]); }
+
+    const pool = ['rifle', 'rifle', 'shotgun', 'sniper', 'launcher', 'armor', 'armor', 'ammo', 'ammo', 'ammo', 'ammo', 'mines', 'mines'];
+    const pickups = [];
+    let ci = maxSpawns % cellOrder.length;
+    for (const kind of pool) {
+      for (let attempt = 0; attempt < cellOrder.length; attempt++) {
+        const [cx, cz] = cellOrder[(ci + attempt) % cellOrder.length];
+        const spot = randomFreeSpot(cx, cz, 8);
+        if (spot) { pickups.push({ kind, x: spot[0], z: spot[1] }); break; }
+      }
+      ci++;
+    }
+
+    return { name: opts.name || 'RANDOM', theme, arena, blocks, spawns, pickups };
+  }
+
+  const LEVEL = { DEFAULT_LEVEL_DATA, makeLevel, validateLevel, generateArena, LIMITS, THEMES };
   if (typeof module !== 'undefined' && module.exports) module.exports = LEVEL;
   else root.LEVEL = LEVEL;
 })(typeof self !== 'undefined' ? self : this);

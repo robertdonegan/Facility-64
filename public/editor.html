@@ -59,6 +59,7 @@
   <button data-tool="rifle">▬ RIFLE</button>
   <button data-tool="shotgun">▤ SHOTGUN</button>
   <button data-tool="sniper">┼ SNIPER</button>
+  <button data-tool="launcher">◉ LAUNCHER</button>
   <button data-tool="armor">▮ ARMOR</button>
   <button data-tool="ammo">▪ AMMO</button>
   <button data-tool="mines">✱ MINES</button>
@@ -146,7 +147,7 @@ function draw(){
     ctx.fillRect(W2C(x - sx/2), W2C(z - sz/2), sx*SCALE, sz*SCALE);
   }
   // pickups
-  const PICON = { rifle:['#2e2e2e','R'], shotgun:['#5a3d20','S'], sniper:['#1d3a2a','L'], armor:['#2f5fd0','A'], ammo:['#777a3a','M'], mines:['#c9422f','X'] };
+  const PICON = { rifle:['#2e2e2e','R'], shotgun:['#5a3d20','S'], sniper:['#1d3a2a','L'], launcher:['#4a3a5a','G'], armor:['#2f5fd0','A'], ammo:['#777a3a','M'], mines:['#c9422f','X'] };
   for(const p of pickups){
     const [col, letter] = PICON[p.kind];
     ctx.fillStyle = col;
@@ -181,7 +182,7 @@ cv.addEventListener('mousedown', e => {
   if(tool === 'wall'){ drag = { x0:x, z0:z, x1:x, z1:z }; }
   else if(tool === 'crate'){ blocks.push([x, z, 2.2, 2.2, 2.2, 'crate']); }
   else if(tool === 'spawn'){ spawns.push([clampIn(x), clampIn(z)]); }
-  else if(['rifle','shotgun','sniper','armor','ammo','mines'].includes(tool)){ pickups.push({ kind: tool, x: clampIn(x), z: clampIn(z) }); }
+  else if(['rifle','shotgun','sniper','launcher','armor','ammo','mines'].includes(tool)){ pickups.push({ kind: tool, x: clampIn(x), z: clampIn(z) }); }
   else if(tool === 'erase'){ eraseAt(x, z); }
   draw();
 });
@@ -251,106 +252,9 @@ document.getElementById('newBtn').onclick = () => {
   setStatus('BLANK ARENA — get building', 'ok');
 };
 
-/* ---------- procedural arena generator ----------
-   Carves an NxN room grid with a randomized-Kruskal spanning tree (guarantees every
-   room is reachable), adds extra open edges for loops, and turns the rest into walls
-   with a door gap. Crates/spawns/pickups are then dropped and collision-checked
-   against the resulting geometry via LEVEL.makeLevel(...).collides(). */
-function generateArena(){
-  const N = Math.max(2, Math.min(6, Math.round((arena * 2) / 22)));
-  const cell = (arena * 2) / N;
-  const ox = -arena, oz = -arena;
-  const cellCenter = (cx, cz) => [ox + (cx + 0.5) * cell, oz + (cz + 0.5) * cell];
-  const idx = (cx, cz) => cz * N + cx;
-
-  const parent = Array.from({ length: N * N }, (_, i) => i);
-  const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
-  const union = (a, b) => { const ra = find(a), rb = find(b); if (ra === rb) return false; parent[ra] = rb; return true; };
-
-  const edges = [];
-  for (let cz = 0; cz < N; cz++) for (let cx = 0; cx < N; cx++) {
-    if (cx < N - 1) edges.push({ a: idx(cx, cz), b: idx(cx + 1, cz), cx, cz, dir: 'v' });
-    if (cz < N - 1) edges.push({ a: idx(cx, cz), b: idx(cx, cz + 1), cx, cz, dir: 'h' });
-  }
-  for (let i = edges.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [edges[i], edges[j]] = [edges[j], edges[i]]; }
-
-  const openEdges = new Set();
-  for (const e of edges) {
-    const key = e.dir + ':' + e.cx + ',' + e.cz;
-    if (union(e.a, e.b) || Math.random() < 0.3) openEdges.add(key);
-  }
-
-  const blocks = [];
-  const THICK = 1.2, HEIGHT = 5, DOORW = 4;
-  function addWallWithDoor(orientation, fixedCoord, from, to){
-    const span = to - from;
-    const gapW = Math.min(DOORW, span * 0.5);
-    const gapCenter = from + span * 0.3 + Math.random() * span * 0.4;
-    const gapLo = gapCenter - gapW / 2, gapHi = gapCenter + gapW / 2;
-    if (gapLo - from > 1) {
-      const len = gapLo - from, c = (from + gapLo) / 2;
-      blocks.push(orientation === 'v' ? [fixedCoord, c, THICK, len, HEIGHT, 'wall'] : [c, fixedCoord, len, THICK, HEIGHT, 'wall']);
-    }
-    if (to - gapHi > 1) {
-      const len = to - gapHi, c = (gapHi + to) / 2;
-      blocks.push(orientation === 'v' ? [fixedCoord, c, THICK, len, HEIGHT, 'wall'] : [c, fixedCoord, len, THICK, HEIGHT, 'wall']);
-    }
-  }
-  for (let cz = 0; cz < N; cz++) for (let cx = 0; cx < N; cx++) {
-    if (cx < N - 1 && !openEdges.has('v:' + cx + ',' + cz)) {
-      addWallWithDoor('v', ox + (cx + 1) * cell, oz + cz * cell, oz + (cz + 1) * cell);
-    }
-    if (cz < N - 1 && !openEdges.has('h:' + cx + ',' + cz)) {
-      addWallWithDoor('h', oz + (cz + 1) * cell, ox + cx * cell, ox + (cx + 1) * cell);
-    }
-  }
-
-  for (let cz = 0; cz < N; cz++) for (let cx = 0; cx < N; cx++) {
-    if (Math.random() < 0.45) {
-      const [ccx, ccz] = cellCenter(cx, cz);
-      blocks.push([ccx + (Math.random() - 0.5) * cell * 0.5, ccz + (Math.random() - 0.5) * cell * 0.5, 2.2, 2.2, 2.2, 'crate']);
-    }
-  }
-
-  const testLevel = LEVEL.makeLevel({ arena, blocks, spawns: [[0, 0], [1, 1]], pickups: [] });
-  function randomFreeSpot(cx, cz, tries){
-    for (let i = 0; i < tries; i++) {
-      const [ccx, ccz] = cellCenter(cx, cz);
-      const x = Math.max(-(arena - 1), Math.min(arena - 1, ccx + (Math.random() - 0.5) * cell * 0.55));
-      const z = Math.max(-(arena - 1), Math.min(arena - 1, ccz + (Math.random() - 0.5) * cell * 0.55));
-      if (!testLevel.collides(x, z, 0.8)) return [Math.round(x), Math.round(z)];
-    }
-    return null;
-  }
-
-  const cellOrder = [];
-  for (let cz = 0; cz < N; cz++) for (let cx = 0; cx < N; cx++) cellOrder.push([cx, cz]);
-  for (let i = cellOrder.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cellOrder[i], cellOrder[j]] = [cellOrder[j], cellOrder[i]]; }
-
-  const spawns = [];
-  const maxSpawns = Math.min(16, cellOrder.length);
-  for (let i = 0; i < maxSpawns; i++) {
-    const spot = randomFreeSpot(cellOrder[i][0], cellOrder[i][1], 12);
-    if (spot) spawns.push(spot);
-  }
-  if (spawns.length < 2) { spawns.push([-(arena - 2), -(arena - 2)]); spawns.push([arena - 2, arena - 2]); }
-
-  const pool = ['rifle', 'rifle', 'shotgun', 'sniper', 'armor', 'armor', 'ammo', 'ammo', 'ammo', 'ammo', 'mines', 'mines'];
-  const pickups = [];
-  let ci = maxSpawns % cellOrder.length;
-  for (const kind of pool) {
-    for (let attempt = 0; attempt < cellOrder.length; attempt++) {
-      const [cx, cz] = cellOrder[(ci + attempt) % cellOrder.length];
-      const spot = randomFreeSpot(cx, cz, 8);
-      if (spot) { pickups.push({ kind, x: spot[0], z: spot[1] }); break; }
-    }
-    ci++;
-  }
-
-  return { blocks, spawns, pickups };
-}
+/* ---------- procedural arena generator (shared implementation in level.js) ---------- */
 document.getElementById('genBtn').onclick = () => {
-  const gen = generateArena();
+  const gen = LEVEL.generateArena({ arena, theme: themeEl.value });
   blocks = gen.blocks; spawns = gen.spawns; pickups = gen.pickups;
   draw();
   const v = LEVEL.validateLevel(levelData());

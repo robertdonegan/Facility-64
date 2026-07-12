@@ -38,11 +38,19 @@ const levelFileName = (name) =>
 
 function listLevels() {
   const files = fs.readdirSync(LEVELS_DIR).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5));
-  return ['FACILITY', ...files.sort()];
+  return ['FACILITY', 'RANDOM', ...files.sort()];
 }
 function loadLevelData(name) {
   const clean = levelFileName(name);
   if (!clean || clean === 'FACILITY') return LEVEL.DEFAULT_LEVEL_DATA;
+  if (clean === 'RANDOM') {
+    // fresh procedural layout per room — random size and theme every time
+    const gen = LEVEL.generateArena({ arena: 36 + Math.floor(Math.random() * 21) });
+    const v = LEVEL.validateLevel(gen);
+    if (v.ok) return v.clean;
+    console.warn(`[levels] RANDOM generation failed validation (${v.error}) — using FACILITY`);
+    return LEVEL.DEFAULT_LEVEL_DATA;
+  }
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(LEVELS_DIR, clean + '.json'), 'utf8'));
     const v = LEVEL.validateLevel(raw);
@@ -97,7 +105,7 @@ const server = http.createServer((req, res) => {
       const v = LEVEL.validateLevel(data);
       if (!v.ok) return json(400, { error: v.error });
       const fname = levelFileName(v.clean.name);
-      if (!fname || fname === 'FACILITY') return json(400, { error: 'pick a different level name' });
+      if (!fname || fname === 'FACILITY' || fname === 'RANDOM') return json(400, { error: 'pick a different level name' });
       fs.writeFileSync(path.join(LEVELS_DIR, fname + '.json'), JSON.stringify(v.clean, null, 2));
       console.log(`[levels] saved ${fname} (${v.clean.blocks.length} blocks, ${v.clean.spawns.length} spawns)`);
       return json(200, { ok: true, name: fname });
