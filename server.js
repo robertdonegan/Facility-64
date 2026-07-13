@@ -204,6 +204,26 @@ class Room {
     this.waveBotsLeft = 0;       // horde mode: bots still to spawn this wave
     this.intermissionUntil = 0;  // horde mode: pause between waves
     this.hordeLegacy = 0;        // horde mode: waves survived in past runs — each run starts harder
+    this.secretsOpen = [];       // BLOCKS indices of opened secret walls
+  }
+
+  /* -------- Wolfenstein pushwalls -------- */
+  handleUse(player, d) {
+    if (!player.alive || this.gameOver) return;
+    if (!Array.isArray(d) || d.length !== 2 || d.some(v => !isFinite(+v))) return;
+    let [fx, fz] = d.map(Number);
+    const len = Math.hypot(fx, fz);
+    if (len < 1e-6) return;
+    fx /= len; fz /= len;
+    for (const reach of [0.9, 1.7, 2.5]) {   // probe forward from the player's chest
+      const idx = this.level.secretAt(player.x + fx * reach, player.z + fz * reach, 0.3);
+      if (idx >= 0) {
+        this.level.openSecret(idx);
+        this.secretsOpen.push(idx);
+        this.broadcast({ t: 'secretOpen', idx });
+        return;
+      }
+    }
   }
 
   broadcast(obj, exceptId = null) {
@@ -650,6 +670,8 @@ class Room {
 
   resetMatch() {
     this.gameOver = false;
+    this.level = LEVEL.makeLevel(this.levelData);   // recloses secret walls
+    this.secretsOpen = [];
     this.pickups = this.level.PICKUPS.map((p, i) => ({ ...p, idx: i, active: true, respawnAt: 0 }));
     this.mines = [];
     this.nades = [];
@@ -731,6 +753,7 @@ wss.on('connection', (ws) => {
         mode: room.mode,
         levelName: room.levelName, level: room.levelData,
         musicName: room.musicName, music: room.musicData,
+        secrets: room.secretsOpen,
         pickups: room.pickups.map(p => p.active),
       }));
       room.broadcast({ t: 'joined', id: me.id, name: me.name }, me.id);
@@ -763,6 +786,9 @@ wss.on('connection', (ws) => {
       }
       case 'placeMine':
         room.placeMine(me, m.x, m.z);
+        break;
+      case 'use':
+        room.handleUse(me, m.d);
         break;
       case 'launch':
         room.handleLaunch(me, m.d);

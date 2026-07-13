@@ -68,7 +68,7 @@
     for (const b of data.blocks) {
       if (!Array.isArray(b) || b.length < 6) return fail('each block must be [cx,cz,sx,sz,sy,kind]');
       const [cx, cz, sx, sz, sy] = b.map(Number);
-      const kind = b[5] === 'crate' ? 'crate' : 'wall';
+      const kind = b[5] === 'crate' ? 'crate' : b[5] === 'secret' ? 'secret' : 'wall';
       if (![cx, cz, sx, sz, sy].every(isFinite)) return fail('block values must be numbers');
       if (sx < 0.5 || sz < 0.5 || sx > arena * 2 || sz > arena * 2) return fail('block footprint out of range');
       if (sy < 1 || sy > 10) return fail('block height must be 1-10');
@@ -109,16 +109,37 @@
     ];
     const SPAWNS = data.spawns.map(s => [+s[0], +s[1]]);
     const PICKUPS = data.pickups.map(p => ({ kind: p.kind, x: +p.x, z: +p.z }));
-    const COLLIDERS = BLOCKS.map(([cx, cz, sx, sz, sy]) => ({
+    const COLLIDERS = BLOCKS.map(([cx, cz, sx, sz, sy, kind]) => ({
       minX: cx - sx / 2, maxX: cx + sx / 2, minZ: cz - sz / 2, maxZ: cz + sz / 2, h: sy,
+      kind: kind || 'wall', open: false,
     }));
 
     function collides(x, z, r) {
       if (x < -ARENA + r + 0.5 || x > ARENA - r - 0.5 || z < -ARENA + r + 0.5 || z > ARENA - r - 0.5) return true;
       for (const c of COLLIDERS) {
+        if (c.open) continue;
         if (x > c.minX - r && x < c.maxX + r && z > c.minZ - r && z < c.maxZ + r) return true;
       }
       return false;
+    }
+
+    /* Wolfenstein-style pushwalls: a 'secret' block stops blocking once opened.
+       idx is the index into BLOCKS (perimeter walls included) — identical on
+       server and client because both build from the same data. */
+    function openSecret(idx) {
+      const c = COLLIDERS[idx];
+      if (!c || c.kind !== 'secret' || c.open) return false;
+      c.open = true;
+      return true;
+    }
+    /* find a closed secret block near a probe point (used server-side for USE) */
+    function secretAt(x, z, slack) {
+      for (let i = 0; i < COLLIDERS.length; i++) {
+        const c = COLLIDERS[i];
+        if (c.kind !== 'secret' || c.open) continue;
+        if (x > c.minX - slack && x < c.maxX + slack && z > c.minZ - slack && z < c.maxZ + slack) return i;
+      }
+      return -1;
     }
 
     // Liang-Barsky segment vs AABB (2D top-down; every block is tall enough to block fire)
@@ -138,11 +159,11 @@
       return true;
     }
     function segBlocked(ax, az, bx, bz) {
-      for (const c of COLLIDERS) if (segHitsRect(ax, az, bx, bz, c)) return true;
+      for (const c of COLLIDERS) { if (!c.open && segHitsRect(ax, az, bx, bz, c)) return true; }
       return false;
     }
 
-    return { name: data.name || 'UNTITLED', theme: THEMES.includes(data.theme) ? data.theme : 'facility', ARENA, BLOCKS, SPAWNS, PICKUPS, COLLIDERS, collides, segBlocked };
+    return { name: data.name || 'UNTITLED', theme: THEMES.includes(data.theme) ? data.theme : 'facility', ARENA, BLOCKS, SPAWNS, PICKUPS, COLLIDERS, collides, segBlocked, openSecret, secretAt };
   }
 
   /* Procedurally generate a full level: an NxN room grid carved with a randomized
@@ -185,13 +206,16 @@
       const gapW = Math.min(DOORW, span * 0.5);
       const gapCenter = from + span * 0.3 + rng() * span * 0.4;
       const gapLo = gapCenter - gapW / 2, gapHi = gapCenter + gapW / 2;
+      // a few wall segments hide Wolfenstein-style secret passages
       if (gapLo - from > 1) {
         const len = gapLo - from, c = (from + gapLo) / 2;
-        blocks.push(orientation === 'v' ? [fixedCoord, c, THICK, len, HEIGHT, 'wall'] : [c, fixedCoord, len, THICK, HEIGHT, 'wall']);
+        const kind = rng() < 0.08 ? 'secret' : 'wall';
+        blocks.push(orientation === 'v' ? [fixedCoord, c, THICK, len, HEIGHT, kind] : [c, fixedCoord, len, THICK, HEIGHT, kind]);
       }
       if (to - gapHi > 1) {
         const len = to - gapHi, c = (gapHi + to) / 2;
-        blocks.push(orientation === 'v' ? [fixedCoord, c, THICK, len, HEIGHT, 'wall'] : [c, fixedCoord, len, THICK, HEIGHT, 'wall']);
+        const kind = rng() < 0.08 ? 'secret' : 'wall';
+        blocks.push(orientation === 'v' ? [fixedCoord, c, THICK, len, HEIGHT, kind] : [c, fixedCoord, len, THICK, HEIGHT, kind]);
       }
     }
     for (let cz = 0; cz < N; cz++) for (let cx = 0; cx < N; cx++) {

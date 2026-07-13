@@ -85,6 +85,7 @@
   #btnReload { right:140px; bottom:40px; width:56px; height:56px; font-size:15px; }
   #btnSwap   { right:150px; bottom:110px; width:56px; height:56px; font-size:13px; }
   #btnScope  { right:36px; bottom:176px; width:56px; height:56px; font-size:12px; }
+  #btnUse    { right:110px; bottom:176px; width:56px; height:56px; font-size:12px; }
   #btnGyro   { right:16px; top:52px; width:56px; height:56px; font-size:12px; }
   #btnPause  { left:50%; top:8px; transform:translateX(-50%); width:46px; height:46px; font-size:15px; border-radius:8px; }
   #rotateNotice { position:fixed; inset:0; z-index:30; display:none; align-items:center; justify-content:center; background:#050806; color:#c9c27f; font-size:24px; letter-spacing:5px; text-align:center; }
@@ -133,6 +134,7 @@
   <button class="tbtn" id="btnReload">RLD</button>
   <button class="tbtn" id="btnSwap">SWAP</button>
   <button class="tbtn" id="btnScope">SCOPE</button>
+  <button class="tbtn" id="btnUse">USE</button>
   <button class="tbtn" id="btnGyro">GYRO</button>
   <button class="tbtn" id="btnPause">| |</button>
 </div>
@@ -391,6 +393,7 @@ function spawnImpactFX(x, y, z, color){
 function rayHitLevel(ox, oy, oz, dx, dy, dz, tMax){
   let best = Infinity;
   for(const c of LEVELINST.COLLIDERS){
+    if(c.open) continue;
     let t0 = 0, t1 = tMax, ok = true;
     const p = [-dx, dx, -dz, dz];
     const q = [ox - c.minX, c.maxX - ox, oz - c.minZ, c.maxZ - oz];
@@ -710,7 +713,10 @@ function addThemeProps(group, theme, A, rng){
   }
 }
 
+let currentLevelData = LEVEL.DEFAULT_LEVEL_DATA;
+let blockMeshes = [];
 function buildLevel(data){
+  currentLevelData = data;
   LEVELINST = LEVEL.makeLevel(data);
   if(levelGroup) scene.remove(levelGroup);
   levelGroup = new THREE.Group();
@@ -730,15 +736,18 @@ function buildLevel(data){
     ceil.rotation.x = Math.PI/2; ceil.position.y = 5; levelGroup.add(ceil);
   }
 
-  for(const [cx, cz, sx, sz, sy, kind] of LEVELINST.BLOCKS){
+  blockMeshes = LEVELINST.BLOCKS.map(([cx, cz, sx, sz, sy, kind]) => {
+    // secret walls render exactly like walls — that's the point
     const tex = kind === 'crate' ? crateTex : TH.wall;
     const mat = new THREE.MeshLambertMaterial({ map: tex.clone() });
     mat.map.needsUpdate = true;
     if(kind !== 'crate') mat.map.repeat.set(Math.max(1,Math.round(sx/3)), Math.max(1,Math.round(sy/3)));
     const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
     m.position.set(cx, sy/2, cz);
+    m.userData.baseY = sy/2;
     levelGroup.add(m);
-  }
+    return m;
+  });
   if(LEVELINST.theme === 'facility'){
     const strips = Math.floor(A/12);
     for(let i=-strips;i<=strips;i++){
@@ -761,6 +770,31 @@ function buildLevel(data){
   scene.add(levelGroup);
 }
 buildLevel(LEVEL.DEFAULT_LEVEL_DATA);
+
+/* ---- Wolfenstein pushwalls: server says open, wall sinks into the floor ---- */
+function openSecretClient(idx, instant){
+  if(!LEVELINST.openSecret(idx)) return;
+  const mesh = blockMeshes[idx];
+  if(!mesh) return;
+  if(instant){ mesh.visible = false; return; }
+  feedSys('SECRET PASSAGE OPENED');
+  shotSound(0.3, 0.4, 90);
+  const startY = mesh.userData.baseY;
+  const start = performance.now();
+  (function anim(){
+    const t = (performance.now() - start) / 900;
+    if(t >= 1){ mesh.visible = false; return; }
+    mesh.position.y = startY - (startY * 2 + 0.2) * t;
+    requestAnimationFrame(anim);
+  })();
+}
+function tryUse(){
+  if(!started || paused || !me.alive) return;
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  const l = Math.hypot(dir.x, dir.z) || 1e-6;
+  send({ t:'use', d:[+(dir.x/l).toFixed(3), +(dir.z/l).toFixed(3)] });
+}
 
 /* ================= WEAPONS ================= */
 const WEAPONS = {
@@ -969,6 +1003,7 @@ function handleMsg(m){
       levelName = m.levelName || 'FACILITY';
       roomMode = m.mode || 'dm'; hordeWave = 0;
       if(m.level) buildLevel(m.level);
+      if(Array.isArray(m.secrets)) for(const i of m.secrets) openSecretClient(i, true);
       if(m.music) startMusic(m.music);
       // a room keeps its first player's map/music — tell the user if their pick was overridden
       {
@@ -1094,6 +1129,9 @@ function handleMsg(m){
         pickupSound(); updateHUD();
       }
       break;
+    case 'secretOpen':
+      openSecretClient(m.idx);
+      break;
     case 'mineArm': {
       const mesh = makeMineMesh();
       mesh.position.set(m.x, .1, m.z);
@@ -1140,6 +1178,8 @@ function handleMsg(m){
       break;
     }
     case 'reset':
+      if(m.levelName) levelName = m.levelName;
+      buildLevel(m.level || currentLevelData);
       pickupActive = m.pickups.slice();
       pickupActive.forEach((a,i)=> pickupMeshes[i].visible = a);
       for(const mesh of mineMeshes.values()) scene.remove(mesh);
@@ -1235,6 +1275,7 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if(e.code === 'Tab' && started){ e.preventDefault(); showScoreboard(true); }
   if(e.code === 'KeyR') startReload();
+  if(e.code === 'KeyE') tryUse();
   if(e.code === 'Digit1') trySwitchWeapon('chop');
   if(e.code === 'Digit2') trySwitchWeapon('pistol');
   if(e.code === 'Digit3') trySwitchWeapon('shotgun');
@@ -1286,7 +1327,7 @@ addEventListener('mousemove', e => {
    0 A/Cross 1 B/Circle 2 X/Square 3 Y/Triangle 4 LB/L1 5 RB/R1 6 LT/L2 7 RT/R2
    8 Select/Share 9 Start/Options 10 L3 11 R3 · axes 0/1 left stick, 2/3 right stick */
 let gpIndex = null;
-const gpPrev = { fire:false, lb:false, rb:false, reload:false, start:false, lt:false, sel:false };
+const gpPrev = { fire:false, lb:false, rb:false, reload:false, start:false, lt:false, sel:false, use:false };
 addEventListener('gamepadconnected', e => { gpIndex = e.gamepad.index; });
 addEventListener('gamepaddisconnected', e => { if(gpIndex === e.gamepad.index) gpIndex = null; });
 function getPad(){
@@ -1384,6 +1425,7 @@ if(isTouch){
   bindBtn('btnReload', () => startReload());
   bindBtn('btnSwap', () => cycleWeapon(1));
   bindBtn('btnScope', el => { setZoom(!zoomed); el.classList.toggle('on', zoomed); });
+  bindBtn('btnUse', () => tryUse());
   bindBtn('btnPause', () => {
     paused = !paused;
     document.getElementById('pauseMenu').style.display = paused ? 'flex' : 'none';
@@ -1730,6 +1772,9 @@ function loop(){
         const reloadBtn = gpPressed(pad, 2);
         if(reloadBtn && !gpPrev.reload) startReload();
         gpPrev.reload = reloadBtn;
+        const useBtn = gpPressed(pad, 3);
+        if(useBtn && !gpPrev.use) tryUse();
+        gpPrev.use = useBtn;
         const lt = gpPressed(pad, 6);
         if(lt !== gpPrev.lt){ setZoom(lt); gpPrev.lt = lt; }
       }
