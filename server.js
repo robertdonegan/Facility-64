@@ -79,7 +79,7 @@ const musicFileName = (name) =>
 
 function listMusic() {
   const files = fs.readdirSync(MUSIC_DIR).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5));
-  return ['FACILITY THEME', ...files.sort()];
+  return [MUSIC.DEFAULT_TRACK.name, ...files.sort()];
 }
 function loadMusicData(name) {
   const clean = musicFileName(name);

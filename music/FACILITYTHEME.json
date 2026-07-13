@@ -1,0 +1,112 @@
+{
+  "name": "FACILITY THEME",
+  "bpm": 128,
+  "steps": 16,
+  "channels": [
+    {
+      "role": "lead",
+      "notes": [
+        60,
+        null,
+        63,
+        null,
+        67,
+        null,
+        63,
+        null,
+        60,
+        null,
+        63,
+        null,
+        67,
+        null,
+        70,
+        null
+      ]
+    },
+    {
+      "role": "bass",
+      "notes": [
+        36,
+        null,
+        null,
+        null,
+        36,
+        null,
+        null,
+        null,
+        41,
+        null,
+        null,
+        null,
+        39,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "role": "kick",
+      "hits": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "role": "snare",
+      "hits": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "role": "hat",
+      "hits": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    }
+  ]
+}

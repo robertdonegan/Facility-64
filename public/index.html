@@ -145,7 +145,7 @@
     <option value="horde">MODE: HORDE — CO-OP VS BOTS</option>
   </select>
   <select id="levelSelect"><option value="FACILITY">MAP: FACILITY</option></select>
-  <select id="musicSelect"><option value="FACILITY THEME">MUSIC: FACILITY THEME</option></select>
+  <select id="musicSelect"><option value="SHADOW PROTOCOL">MUSIC: SHADOW PROTOCOL</option></select>
   <button class="menu-btn" id="startBtn">ENTER ARENA</button>
   <a id="editorLink" href="/editor.html" target="_blank">LEVEL EDITOR →</a>
   &nbsp;&middot;&nbsp;
@@ -1510,7 +1510,7 @@ document.getElementById('startBtn').onclick = () => {
   const name = (nameInput.value || 'AGENT ' + Math.floor(Math.random()*90+10)).trim();
   const room = (roomInput.value || 'LOBBY').trim();
   const level = levelSelect.value || 'FACILITY';
-  const music = musicSelect.value || 'FACILITY THEME';
+  const music = musicSelect.value || 'SHADOW PROTOCOL';
   const mode = document.getElementById('modeSelect').value || 'dm';
   document.getElementById('startBtn').disabled = true;
   connect(name, room, level, music, mode);

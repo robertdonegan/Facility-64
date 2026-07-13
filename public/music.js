@@ -17,14 +17,27 @@
   const ROLES = ['lead', 'bass', 'kick', 'snare', 'hat'];
   const LIMITS = { stepsAllowed: [8, 16, 32], bpmMin: 60, bpmMax: 220, nameLen: 16, noteMin: 24, noteMax: 96 };
 
+  /* Default soundtrack: a 96bpm D-minor thriller crawl — heartbeat kick pairs,
+     a sparse lead leaning on semitone and tritone tension, bass ostinato.
+     The original FACILITY THEME still ships as music/FACILITYTHEME.json. */
   const DEFAULT_TRACK = {
-    name: 'FACILITY THEME', bpm: 128, steps: 16,
+    name: 'SHADOW PROTOCOL', bpm: 96, steps: 32,
     channels: [
-      { role: 'lead', notes: [60, null, 63, null, 67, null, 63, null, 60, null, 63, null, 67, null, 70, null] },
-      { role: 'bass', notes: [36, null, null, null, 36, null, null, null, 41, null, null, null, 39, null, null, null] },
-      { role: 'kick', hits: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] },
-      { role: 'snare', hits: [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0] },
-      { role: 'hat', hits: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] },
+      { role: 'lead', notes: [
+        74, null, null, null, null, null, null, 75, null, null, 74, null, null, null, null, null,
+        69, null, null, 68, null, null, 69, null, 77, null, 76, null, null, null, 74, null] },
+      { role: 'bass', notes: [
+        38, null, null, null, null, null, 38, null, 36, null, null, null, null, null, 34, null,
+        38, null, null, null, null, null, 38, null, 41, null, null, null, 33, null, 36, null] },
+      { role: 'kick', hits: [
+        1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0,
+        1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0] },
+      { role: 'snare', hits: [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1] },
+      { role: 'hat', hits: [
+        0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1,
+        0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0] },
     ],
   };
 
