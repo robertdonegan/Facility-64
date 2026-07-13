@@ -33,6 +33,12 @@ const MINE_ARM_MS = 500, MINE_PLACE_COOLDOWN_MS = 500, MAX_MINES_PER_ROOM = 24;
 const NADE_SPEED = 17, NADE_GRAVITY = 22, NADE_FUSE_MS = 2000;
 const NADE_DMG = 90, NADE_BLAST_R = 5, MAX_NADES_PER_ROOM = 12;
 
+/* PvE bots: spawned when a room has exactly one human, scale up each wave */
+const BOT_NAMES = ['DRONE', 'HUNTER', 'STALKER', 'REAPER'];
+const BOT_COLOR = 0x3a3a3a;
+const BOT_DMG = 14, BOT_RESPAWN_GAP_MS = 1500;
+const BOT_GRACE_MS = parseInt(process.env.BOT_GRACE_MS || '10000', 10);   // solo time before hostiles arrive
+
 /* ---------- custom levels ---------- */
 const LEVELS_DIR = path.join(__dirname, 'levels');
 if (!fs.existsSync(LEVELS_DIR)) fs.mkdirSync(LEVELS_DIR, { recursive: true });
@@ -171,15 +177,21 @@ class Room {
     this.nextMineId = 1;
     this.nades = [];
     this.nextNadeId = 1;
+    this.botWave = 0;
+    this.botSeq = 0;
+    this.nextBotAt = 0;
+    this.botsAnnounced = false;
   }
 
   broadcast(obj, exceptId = null) {
     const msg = JSON.stringify(obj);
     for (const p of this.players.values()) {
-      if (p.id === exceptId) continue;
+      if (p.id === exceptId || !p.ws) continue;
       if (p.ws.readyState === 1) p.ws.send(msg);
     }
   }
+
+  humanCount() { return [...this.players.values()].filter(p => !p.bot).length; }
   announce(text, say) { this.broadcast({ t: 'announce', text, say: say || text }); }
 
   farSpawn() {
@@ -194,8 +206,8 @@ class Room {
     return best;
   }
 
-  spawnPlayer(p) {
-    const [x, z] = this.farSpawn();
+  spawnPlayer(p, spot) {
+    const [x, z] = spot || this.farSpawn();
     p.x = x; p.z = z; p.yaw = Math.atan2(-x, -z);
     p.hp = 100; p.armor = 0; p.alive = true; p.weapon = 'pistol';
     p.owned = { chop: true, pistol: true, rifle: false, shotgun: false, sniper: false, launcher: false, mines: false };
@@ -350,10 +362,134 @@ class Room {
       this.broadcast({ t: 'death', victim: target.id, killer: attacker.id });
       this.handleStreaks(attacker, target);
       this.checkWin(attacker);
+      if (target.bot) {
+        this.botWave++;
+        if (this.botWave % 3 === 0) this.announce(`HOSTILE REINFORCEMENTS — MARK ${1 + this.botWave / 3}`, 'Reinforcements inbound');
+      }
       if (!this.gameOver) {
         setTimeout(() => {
-          if (this.players.has(target.id) && !this.gameOver) this.spawnPlayer(target);
+          if (this.players.has(target.id) && !this.gameOver) {
+            this.spawnPlayer(target);
+            if (target.bot) this.scaleBot(target);   // respawn stronger each wave
+          }
         }, RESPAWN_MS);
+      }
+    }
+  }
+
+  /* -------- PvE bots -------- */
+  scaleBot(bot) {
+    const wave = this.botWave;
+    bot.botSpeed = Math.min(6.5, 3 + wave * 0.25);
+    bot.botAimErr = Math.max(0.05, 0.3 - wave * 0.02);
+    bot.botRof = Math.max(500, 1400 - wave * 70);
+    bot.hp = Math.min(180, 70 + wave * 12);
+  }
+
+  spawnBot() {
+    const wave = this.botWave;
+    const bot = {
+      id: nextId++, ws: null, bot: true,
+      name: BOT_NAMES[Math.min(BOT_NAMES.length - 1, Math.floor(wave / 3))] + '-' + (++this.botSeq),
+      color: BOT_COLOR,
+      x: 0, z: 0, yaw: 0, hp: 100, armor: 0, score: 0, streak: 0, multi: 0, lastKillAt: 0,
+      alive: false, weapon: 'pistol', lastShot: 0, lastMine: 0,
+      owned: { chop: true, pistol: true, rifle: false, shotgun: false, sniper: false, launcher: false, mines: false },
+      strafeT: Math.random() * 10,
+    };
+    this.players.set(bot.id, bot);
+    this.broadcast({ t: 'joined', id: bot.id, name: bot.name });
+    this.spawnPlayer(bot, this.botSpawnSpot());
+    this.scaleBot(bot);
+  }
+
+  // bots arrive at mid distance — not on top of the player, not across the map
+  botSpawnSpot() {
+    const humans = [...this.players.values()].filter(p => !p.bot && p.alive);
+    const scored = this.level.SPAWNS.map(s => {
+      let d = Infinity;
+      for (const h of humans) d = Math.min(d, Math.hypot(h.x - s[0], h.z - s[1]));
+      return { s, d };
+    }).filter(e => e.d > 10);
+    if (!scored.length) return this.farSpawn();
+    scored.sort((a, b) => a.d - b.d);
+    const near = scored.slice(0, Math.max(1, Math.ceil(scored.length / 2)));
+    return near[Math.floor(Math.random() * near.length)].s;
+  }
+
+  removeBots(announce) {
+    const bots = [...this.players.values()].filter(p => p.bot);
+    if (!bots.length) return;
+    for (const b of bots) {
+      this.players.delete(b.id);
+      this.broadcast({ t: 'left', id: b.id, name: b.name });
+    }
+    this.botWave = 0;
+    this.botsAnnounced = false;
+    if (announce) this.announce('HOSTILES WITHDRAW — AGENTS ON SITE', 'Hostiles withdraw');
+  }
+
+  manageBots(nowMs) {
+    const humans = this.humanCount();
+    if (humans !== 1 || this.gameOver) {
+      this.soloSince = 0;
+      if (humans >= 2) this.removeBots(true);
+      return;
+    }
+    if (!this.soloSince) this.soloSince = nowMs;
+    if (nowMs - this.soloSince < BOT_GRACE_MS) return;
+    const targetCount = Math.min(4, 2 + Math.floor(this.botWave / 3));
+    const bots = [...this.players.values()].filter(p => p.bot);
+    if (bots.length < targetCount && nowMs >= this.nextBotAt) {
+      this.nextBotAt = nowMs + BOT_RESPAWN_GAP_MS;
+      if (!this.botsAnnounced) {
+        this.botsAnnounced = true;
+        this.announce('TRAINING SIM ACTIVE — HOSTILES INBOUND', 'Hostiles inbound');
+      }
+      this.spawnBot();
+    }
+  }
+
+  tickBots(nowMs, dt) {
+    if (this.gameOver) return;
+    const humans = [...this.players.values()].filter(p => !p.bot && p.alive);
+    if (!humans.length) return;
+    for (const b of this.players.values()) {
+      if (!b.bot || !b.alive) continue;
+      let target = null, best = Infinity;
+      for (const h of humans) {
+        const d2 = (h.x - b.x) ** 2 + (h.z - b.z) ** 2;
+        if (d2 < best) { best = d2; target = h; }
+      }
+      const dx = target.x - b.x, dz = target.z - b.z;
+      const dist = Math.hypot(dx, dz) || 1e-6;
+      const nx = dx / dist, nz = dz / dist;
+
+      // chase to mid range, back off when crowded, strafe sideways constantly
+      b.strafeT += dt;
+      const strafe = Math.sin(b.strafeT * 1.7 + b.id);
+      let mx = 0, mz = 0;
+      if (dist > 13) { mx = nx; mz = nz; }
+      else if (dist < 7) { mx = -nx; mz = -nz; }
+      mx += -nz * strafe * 0.8; mz += nx * strafe * 0.8;
+      const ml = Math.hypot(mx, mz);
+      if (ml > 1e-6) {
+        const step = b.botSpeed * dt;
+        const sx = b.x + (mx / ml) * step;
+        if (!this.level.collides(sx, b.z, 0.55)) b.x = sx;
+        const sz = b.z + (mz / ml) * step;
+        if (!this.level.collides(b.x, sz, 0.55)) b.z = sz;
+        b.moving = true;
+      } else b.moving = false;
+      b.yaw = Math.atan2(dx, dz);
+
+      if (nowMs - b.lastShot >= b.botRof && dist < 42 && !this.level.segBlocked(b.x, b.z, target.x, target.z)) {
+        b.lastShot = nowMs;
+        this.broadcast({ t: 'shot', id: b.id, w: 'pistol' });
+        const err = b.botAimErr;
+        const d = [nx + (Math.random() - .5) * err, (CHEST_Y - EYE_Y) / dist + (Math.random() - .5) * err, nz + (Math.random() - .5) * err];
+        const hit = this.raycastRay(b, d, MAX_RANGE);
+        if (hit && !hit.bot) this.applyDamage(hit, b, BOT_DMG);
       }
     }
   }
@@ -399,6 +535,7 @@ class Room {
     this.pickups = this.level.PICKUPS.map((p, i) => ({ ...p, idx: i, active: true, respawnAt: 0 }));
     this.mines = [];
     this.nades = [];
+    this.removeBots(false);   // fresh waves next round
     for (const p of this.players.values()) {
       p.score = 0; p.streak = 0; p.multi = 0;
       this.spawnPlayer(p);
@@ -415,6 +552,8 @@ class Room {
     }
     this.tickMines(nowMs);
     this.tickNades(nowMs, TICK_MS / 1000);
+    this.manageBots(nowMs);
+    this.tickBots(nowMs, TICK_MS / 1000);
     if (this.players.size === 0) return;
     this.broadcast({
       t: 'snap',
@@ -526,7 +665,7 @@ wss.on('connection', (ws) => {
     room.players.delete(me.id);
     room.broadcast({ t: 'left', id: me.id, name: me.name });
     console.log(`[room ${room.code}] - ${me.name} (#${me.id}) — ${room.players.size} in arena`);
-    if (room.players.size === 0) {
+    if (room.humanCount() === 0) {   // bots alone don't keep a room alive
       if (room.resetTimer) clearTimeout(room.resetTimer);
       rooms.delete(room.code);
       console.log(`[room ${room.code}] closed`);
