@@ -684,6 +684,7 @@ class Room {
         hp: Math.round(p.hp), armor: Math.round(p.armor),
         score: p.score, streak: p.streak || 0, alive: p.alive, mv: p.moving ? 1 : 0,
         weapon: p.weapon,
+        ...(p.avatar && p.avatar !== 'agent' ? { av: p.avatar } : {}),
         ...(p.bot ? { cls: p.botMelee ? 'zombie' : 'bot' } : {}),
       })),
     });
@@ -714,10 +715,11 @@ wss.on('connection', (ws) => {
 
     if (m.t === 'join' && !me) {
       const name = String(m.name || 'AGENT').toUpperCase().replace(/[^A-Z0-9 _-]/g, '').slice(0, 12) || 'AGENT';
+      const avatar = ['agent', 'commando', 'scientist', 'spy'].includes(m.avatar) ? m.avatar : 'agent';
       const code = String(m.room || 'LOBBY').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'LOBBY';
       room = getRoom(code, m.level, m.music, m.mode);
       me = {
-        id: nextId++, ws, name,
+        id: nextId++, ws, name, avatar,
         color: COLORS[(nextId - 2) % COLORS.length],
         x: 0, z: 0, yaw: 0, hp: 100, armor: 0, score: 0, streak: 0, multi: 0, lastKillAt: 0,
         alive: false, weapon: 'pistol', lastShot: 0, lastMine: 0,

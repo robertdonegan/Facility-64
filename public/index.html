@@ -55,9 +55,9 @@
   #nameInput:focus, #roomInput:focus { border-color:#c9c27f; }
   #roomInput { font-size:16px; letter-spacing:3px; }
   #roomInput::placeholder, #nameInput::placeholder { color:#5f6f4a; }
-  #levelSelect, #musicSelect, #modeSelect { pointer-events:auto; font-family:inherit; font-size:16px; letter-spacing:3px; color:#e8e3c0; background:rgba(0,0,0,.5); border:2px solid #7a8a5a; padding:10px 16px; width:280px; margin-bottom:14px; text-transform:uppercase; outline:none; cursor:pointer; }
-  #levelSelect:focus, #musicSelect:focus, #modeSelect:focus { border-color:#c9c27f; }
-  #levelSelect option, #musicSelect option, #modeSelect option { background:#10190f; }
+  #levelSelect, #musicSelect, #modeSelect, #avatarSelect { pointer-events:auto; font-family:inherit; font-size:16px; letter-spacing:3px; color:#e8e3c0; background:rgba(0,0,0,.5); border:2px solid #7a8a5a; padding:10px 16px; width:280px; margin-bottom:14px; text-transform:uppercase; outline:none; cursor:pointer; }
+  #levelSelect:focus, #musicSelect:focus, #modeSelect:focus, #avatarSelect:focus { border-color:#c9c27f; }
+  #levelSelect option, #musicSelect option, #modeSelect option, #avatarSelect option { background:#10190f; }
   #editorLink, #musicEditorLink, #weaponEditorLink, #textureEditorLink { pointer-events:auto; color:#7a8a5a; font-size:14px; letter-spacing:3px; margin-top:14px; text-decoration:none; border-bottom:1px dotted #7a8a5a; }
   #editorLink:hover, #musicEditorLink:hover, #weaponEditorLink:hover, #textureEditorLink:hover { color:#c9c27f; border-color:#c9c27f; }
   #clickHint { position:absolute; left:50%; top:58%; transform:translateX(-50%); color:#0e150d; background:#c9c27f; font-size:20px; letter-spacing:5px; padding:10px 26px; box-shadow:4px 4px 0 rgba(0,0,0,.6); animation:blink 1.6s steps(2) infinite; }
@@ -143,6 +143,12 @@
   <h2>MULTIPLAYER DEATHMATCH &middot; LICENCE TO FRAG</h2>
   <input id="nameInput" maxlength="12" placeholder="CODENAME" autocomplete="off">
   <input id="roomInput" maxlength="8" placeholder="ROOM CODE (BLANK = LOBBY)" autocomplete="off">
+  <select id="avatarSelect">
+    <option value="agent">AVATAR: AGENT</option>
+    <option value="commando">AVATAR: COMMANDO</option>
+    <option value="scientist">AVATAR: SCIENTIST</option>
+    <option value="spy">AVATAR: SPY</option>
+  </select>
   <select id="modeSelect">
     <option value="dm">MODE: DEATHMATCH</option>
     <option value="horde">MODE: HORDE — CO-OP VS BOTS</option>
@@ -790,15 +796,50 @@ const me = {
 let winScore = 10;
 
 /* ================= REMOTE PLAYERS ================= */
-function makeAgentMesh(color, cls){
+function makeAgentMesh(color, cls, avatar){
   const g = new THREE.Group();
   const zombie = cls === 'zombie';
-  const suit = new THREE.MeshLambertMaterial({ color: zombie ? 0x3a4a30 : color });
+  const av = zombie ? 'agent' : (avatar || 'agent');
+  const suit = new THREE.MeshLambertMaterial({ color: zombie ? 0x3a4a30 : (av === 'scientist' ? 0xe8e6df : av === 'spy' ? 0x26262c : color) });
   const skin = new THREE.MeshLambertMaterial({ color: zombie ? 0x7da05a : 0xd8a878 });
   const dark = new THREE.MeshLambertMaterial({ color:0x1c1c1c });
   const torso = new THREE.Mesh(new THREE.BoxGeometry(.9,1.1,.5), suit); torso.position.y = 1.25; g.add(torso);
   const head  = new THREE.Mesh(new THREE.BoxGeometry(.5,.5,.5), skin); head.position.y = 2.08; g.add(head);
-  const hair  = new THREE.Mesh(new THREE.BoxGeometry(.54,.18,.54), dark); hair.position.y = 2.32; g.add(hair);
+  const hair  = new THREE.Mesh(new THREE.BoxGeometry(.54,.18,.54),
+    av === 'scientist' ? new THREE.MeshLambertMaterial({ color:0xb8b8b0 }) : dark); hair.position.y = 2.32; g.add(hair);
+  if(!zombie){
+    if(av === 'commando'){
+      // maroon beret, tactical chest rig in the team colour
+      const beret = new THREE.Mesh(new THREE.BoxGeometry(.56,.14,.56), new THREE.MeshLambertMaterial({ color:0x6a2030 }));
+      beret.position.set(-.04,2.38,0); beret.rotation.z = .18; g.add(beret);
+      const rig = new THREE.Mesh(new THREE.BoxGeometry(.94,.5,.56), dark);
+      rig.position.y = 1.45; g.add(rig);
+      for(const sx of [-.22,.02,.26]){
+        const pouch = new THREE.Mesh(new THREE.BoxGeometry(.16,.2,.08), new THREE.MeshLambertMaterial({ color:0x3a4030 }));
+        pouch.position.set(sx,1.4,-.3); g.add(pouch);
+      }
+    } else if(av === 'scientist'){
+      // white coat over team-colour trousers, glasses
+      const coat = new THREE.Mesh(new THREE.BoxGeometry(.94,.5,.54), suit);
+      coat.position.y = .75; g.add(coat);
+      const shirt = new THREE.Mesh(new THREE.BoxGeometry(.4,.3,.52), new THREE.MeshLambertMaterial({ color }));
+      shirt.position.set(0,1.62,0); g.add(shirt);
+      for(const sx of [-.13,.13]){
+        const lens = new THREE.Mesh(new THREE.BoxGeometry(.14,.1,.04), dark);
+        lens.position.set(sx,2.1,-.26); g.add(lens);
+      }
+    } else if(av === 'spy'){
+      // fedora + visor shades + team-colour tie on a black suit
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(.42,.42,.05,10), dark);
+      brim.position.y = 2.34; g.add(brim);
+      const crown = new THREE.Mesh(new THREE.BoxGeometry(.44,.2,.44), dark);
+      crown.position.y = 2.45; g.add(crown);
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(.42,.09,.04), new THREE.MeshBasicMaterial({ color:0x111111 }));
+      visor.position.set(0,2.12,-.26); g.add(visor);
+      const tie = new THREE.Mesh(new THREE.BoxGeometry(.12,.6,.04), new THREE.MeshLambertMaterial({ color }));
+      tie.position.set(0,1.42,-.27); g.add(tie);
+    }
+  }
   const legL  = new THREE.Mesh(new THREE.BoxGeometry(.32,.75,.35), dark); legL.position.set(-.24,.37,0); g.add(legL);
   const legR  = legL.clone(); legR.position.x = .24; g.add(legR);
   const armL  = new THREE.Mesh(new THREE.BoxGeometry(.22,.9,.32), zombie ? skin : suit); armL.position.set(-.58,1.3,0); g.add(armL);
@@ -858,7 +899,7 @@ const remotes = new Map(); // id -> remote
 function ensureRemote(p){
   let r = remotes.get(p.id);
   if(!r){
-    const mesh = makeAgentMesh(p.color, p.cls);
+    const mesh = makeAgentMesh(p.color, p.cls, p.av);
     mesh.add(makeNameSprite(p.name));
     scene.add(mesh);
     r = { id:p.id, name:p.name, cls:p.cls, mesh, x:p.x, z:p.z, yaw:p.yaw, tx:p.x, tz:p.z, tyaw:p.yaw, alive:p.alive, mv:0, walkT:Math.random()*10, weapon:'pistol' };
@@ -882,14 +923,14 @@ let roomMode = 'dm', hordeWave = 0;
 let pingMs = 0, lastPingSent = 0;
 const connStatus = document.getElementById('connStatus');
 
-function connect(name, room, level, music, mode){
+function connect(name, room, level, music, mode, avatar){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}`);
   connStatus.textContent = 'CONTACTING HQ...';
   requestedLevel = level; requestedMusic = music; requestedMode = mode;
   ws.onopen = () => {
     connected = true;
-    ws.send(JSON.stringify({ t:'join', name, room, level, music, mode }));
+    ws.send(JSON.stringify({ t:'join', name, room, level, music, mode, avatar }));
   };
   ws.onclose = () => {
     connected = false; joined = false;
@@ -1545,6 +1586,7 @@ function tryPickup(){
 
 /* ================= MENUS ================= */
 const nameInput = document.getElementById('nameInput');
+try{ const savedAv = localStorage.getItem('f64-avatar'); if(savedAv) document.getElementById('avatarSelect').value = savedAv; }catch(e){}
 const roomInput = document.getElementById('roomInput');
 if(location.hash.length > 1) roomInput.value = location.hash.slice(1).toUpperCase();
 const levelSelect = document.getElementById('levelSelect');
@@ -1590,8 +1632,10 @@ document.getElementById('startBtn').onclick = () => {
   const level = levelSelect.value || 'FACILITY';
   const music = musicSelect.value || 'SHADOW PROTOCOL';
   const mode = document.getElementById('modeSelect').value || 'dm';
+  const avatar = document.getElementById('avatarSelect').value || 'agent';
+  try{ localStorage.setItem('f64-avatar', avatar); }catch(e){}
   document.getElementById('startBtn').disabled = true;
-  connect(name, room, level, music, mode);
+  connect(name, room, level, music, mode, avatar);
 };
 function enterArena(){
   document.getElementById('startBtn').disabled = false;
