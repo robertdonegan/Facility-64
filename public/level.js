@@ -43,10 +43,11 @@
       { kind: 'mines', x: -30, z: 0 }, { kind: 'mines', x: 30, z: 0 },
       { kind: 'shotgun', x: 14, z: 32 }, { kind: 'sniper', x: -14, z: -32 },
       { kind: 'launcher', x: -14, z: 32 },
+      { kind: 'health', x: 24, z: 0 }, { kind: 'health', x: -24, z: 0 },
     ],
   };
 
-  const PICKUP_KINDS = ['rifle', 'shotgun', 'sniper', 'launcher', 'armor', 'ammo', 'mines'];
+  const PICKUP_KINDS = ['rifle', 'shotgun', 'sniper', 'launcher', 'armor', 'ammo', 'mines', 'health'];
   const THEMES = ['facility', 'jungle', 'office', 'church', 'rooftop'];
   const LIMITS = { arenaMin: 16, arenaMax: 80, blocks: 300, spawns: 32, pickups: 32, nameLen: 16 };
 
@@ -232,7 +233,7 @@
     }
     if (spawns.length < 2) { spawns.push([-(arena - 2), -(arena - 2)]); spawns.push([arena - 2, arena - 2]); }
 
-    const pool = ['rifle', 'rifle', 'shotgun', 'sniper', 'launcher', 'armor', 'armor', 'ammo', 'ammo', 'ammo', 'ammo', 'mines', 'mines'];
+    const pool = ['rifle', 'rifle', 'shotgun', 'sniper', 'launcher', 'armor', 'armor', 'ammo', 'ammo', 'ammo', 'ammo', 'mines', 'mines', 'health', 'health'];
     const pickups = [];
     let ci = maxSpawns % cellOrder.length;
     for (const kind of pool) {

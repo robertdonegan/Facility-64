@@ -123,6 +123,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url === '/api/rooms' && req.method === 'GET') {
+    // menu "match live" indicator: LOBBY details are public, private rooms only as counts
+    const lobby = rooms.get('LOBBY');
+    let privateRooms = 0, privateAgents = 0;
+    for (const [code, r] of rooms) {
+      if (code === 'LOBBY') continue;
+      privateRooms++; privateAgents += r.humanCount();
+    }
+    return json(200, {
+      lobby: lobby ? {
+        agents: lobby.humanCount(), map: lobby.levelName, mode: lobby.mode,
+        wave: lobby.mode === 'horde' ? lobby.hordeWave : undefined,
+      } : null,
+      privateRooms, privateAgents,
+    });
+  }
+
   if (url === '/api/music' && req.method === 'GET') {
     return json(200, { tracks: listMusic() });
   }
@@ -663,6 +680,7 @@ class Room {
         hp: Math.round(p.hp), armor: Math.round(p.armor),
         score: p.score, streak: p.streak || 0, alive: p.alive, mv: p.moving ? 1 : 0,
         weapon: p.weapon,
+        ...(p.bot ? { cls: p.botMelee ? 'zombie' : 'bot' } : {}),
       })),
     });
   }
@@ -750,6 +768,7 @@ wss.on('connection', (ws) => {
         if ((p.x - me.x) ** 2 + (p.z - me.z) ** 2 > 2.5) break;
         if (p.kind === 'rifle' || p.kind === 'shotgun' || p.kind === 'sniper' || p.kind === 'launcher') { me.weapon = p.kind; me.owned[p.kind] = true; }
         else if (p.kind === 'armor') { if (me.armor >= 100) break; me.armor = 100; }
+        else if (p.kind === 'health') { if (me.hp >= 100) break; me.hp = Math.min(100, me.hp + 50); }
         else if (p.kind === 'mines') { me.owned.mines = true; }
         // ammo/mine count is client-side flavour; server just cycles the pickup
         p.active = false; p.respawnAt = Date.now() + 15000;

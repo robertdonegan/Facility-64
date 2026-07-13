@@ -258,6 +258,21 @@
       "kind": "mines",
       "x": 0,
       "z": 12
+    },
+    {
+      "kind": "launcher",
+      "x": -17,
+      "z": 10
+    },
+    {
+      "kind": "health",
+      "x": 0,
+      "z": -14
+    },
+    {
+      "kind": "health",
+      "x": 0,
+      "z": 6
     }
   ]
 }
