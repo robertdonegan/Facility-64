@@ -162,8 +162,9 @@ const rooms = new Map();   // code -> Room
 let nextId = 1;
 
 class Room {
-  constructor(code, levelName, musicName) {
+  constructor(code, levelName, musicName, mode) {
     this.code = code;
+    this.mode = mode === 'horde' ? 'horde' : 'dm';
     this.levelName = levelFileName(levelName) || 'FACILITY';
     this.levelData = loadLevelData(this.levelName);
     this.level = LEVEL.makeLevel(this.levelData);
@@ -181,6 +182,9 @@ class Room {
     this.botSeq = 0;
     this.nextBotAt = 0;
     this.botsAnnounced = false;
+    this.hordeWave = 0;          // horde mode: current wave (0 = not started)
+    this.waveBotsLeft = 0;       // horde mode: bots still to spawn this wave
+    this.intermissionUntil = 0;  // horde mode: pause between waves
   }
 
   broadcast(obj, exceptId = null) {
@@ -352,6 +356,8 @@ class Room {
 
   applyDamage(target, attacker, dmg) {
     if (!target.alive || this.gameOver) return;
+    // horde is co-op: humans cannot hurt each other (self-damage still applies)
+    if (this.mode === 'horde' && !attacker.bot && !target.bot && attacker.id !== target.id) return;
     const absorbed = Math.min(target.armor, dmg * 0.7);
     target.armor = Math.round((target.armor - absorbed) * 10) / 10;
     target.hp -= (dmg - absorbed);
@@ -363,10 +369,18 @@ class Room {
       this.handleStreaks(attacker, target);
       this.checkWin(attacker);
       if (target.bot) {
-        this.botWave++;
-        if (this.botWave % 3 === 0) this.announce(`HOSTILE REINFORCEMENTS — MARK ${1 + this.botWave / 3}`, 'Reinforcements inbound');
+        if (this.mode === 'horde') {
+          this.players.delete(target.id);   // wave units stay down; snap absence cleans the client
+        } else {
+          this.botWave++;
+          if (this.botWave % 3 === 0) this.announce(`HOSTILE REINFORCEMENTS — MARK ${1 + this.botWave / 3}`, 'Reinforcements inbound');
+        }
       }
-      if (!this.gameOver) {
+      if (this.mode === 'horde' && !target.bot) {
+        // squad wiped?
+        if (![...this.players.values()].some(p => !p.bot && p.alive)) { this.hordeOver(); return; }
+      }
+      if (!this.gameOver && !(this.mode === 'horde' && target.bot)) {
         setTimeout(() => {
           if (this.players.has(target.id) && !this.gameOver) {
             this.spawnPlayer(target);
@@ -430,6 +444,7 @@ class Room {
   }
 
   manageBots(nowMs) {
+    if (this.mode === 'horde') return this.manageHorde(nowMs);
     const humans = this.humanCount();
     if (humans !== 1 || this.gameOver) {
       this.soloSince = 0;
@@ -450,6 +465,76 @@ class Room {
     }
   }
 
+  /* -------- horde mode: co-op waves for any number of humans -------- */
+  startWave(n, nowMs) {
+    this.hordeWave = n;
+    this.waveBotsLeft = Math.min(14, 3 + n * 2);
+    this.intermissionUntil = 0;
+    this.nextBotAt = nowMs;
+    this.announce(`WAVE ${n} — ${this.waveBotsLeft} HOSTILES`, `Wave ${n}`);
+  }
+
+  spawnHordeBot() {
+    const w = this.hordeWave;
+    const melee = w < 3 || Math.random() < 0.7;   // early waves are pure chasers
+    const bot = {
+      id: nextId++, ws: null, bot: true,
+      name: (melee ? 'ZOMBIE' : 'GUNNER') + '-' + (++this.botSeq),
+      color: BOT_COLOR,
+      x: 0, z: 0, yaw: 0, hp: 100, armor: 0, score: 0, streak: 0, multi: 0, lastKillAt: 0,
+      alive: false, weapon: 'pistol', lastShot: 0, lastMine: 0,
+      owned: { chop: true, pistol: true, rifle: false, shotgun: false, sniper: false, launcher: false, mines: false },
+      strafeT: Math.random() * 10,
+      botMelee: melee,
+      botSpeed: Math.min(7, (melee ? 3.6 : 3.0) + w * 0.2),
+      botAimErr: Math.max(0.06, 0.28 - w * 0.015),
+      botRof: melee ? 900 : Math.max(600, 1300 - w * 50),
+      botDmg: melee ? Math.min(35, 16 + w * 2) : BOT_DMG,
+    };
+    this.players.set(bot.id, bot);
+    this.broadcast({ t: 'joined', id: bot.id, name: bot.name });
+    this.spawnPlayer(bot, this.botSpawnSpot());
+    bot.weapon = melee ? 'chop' : 'pistol';
+    bot.hp = Math.min(200, 60 + w * 10);
+  }
+
+  manageHorde(nowMs) {
+    if (this.gameOver || this.humanCount() === 0) return;
+    const liveBots = [...this.players.values()].filter(p => p.bot).length;
+    if (this.hordeWave === 0) {
+      if (!this.intermissionUntil) {
+        this.intermissionUntil = nowMs + BOT_GRACE_MS;
+        this.announce('HORDE SIM ACTIVE — DEFEND TOGETHER', 'Horde sim active');
+      }
+      if (nowMs < this.intermissionUntil) return;
+      return this.startWave(1, nowMs);
+    }
+    if (this.waveBotsLeft > 0) {
+      const cap = Math.min(8, 3 + this.hordeWave);
+      if (liveBots < cap && nowMs >= this.nextBotAt) {
+        this.nextBotAt = nowMs + 500;
+        this.spawnHordeBot();
+        this.waveBotsLeft--;
+      }
+    } else if (liveBots === 0) {
+      if (!this.intermissionUntil) {
+        this.intermissionUntil = nowMs + 6000;
+        this.announce(`WAVE ${this.hordeWave} CLEARED`, 'Wave cleared');
+      } else if (nowMs >= this.intermissionUntil) {
+        this.startWave(this.hordeWave + 1, nowMs);
+      }
+    }
+  }
+
+  hordeOver() {
+    this.gameOver = true;
+    const board = [...this.players.values()].filter(p => !p.bot)
+      .sort((a, b) => b.score - a.score)
+      .map(p => ({ name: p.name, score: p.score }));
+    this.broadcast({ t: 'gameOver', winner: -1, winnerName: `THE HORDE — WAVE ${this.hordeWave}`, board, resetIn: RESET_MS });
+    this.resetTimer = setTimeout(() => this.resetMatch(), RESET_MS);
+  }
+
   tickBots(nowMs, dt) {
     if (this.gameOver) return;
     const humans = [...this.players.values()].filter(p => !p.bot && p.alive);
@@ -465,13 +550,19 @@ class Room {
       const dist = Math.hypot(dx, dz) || 1e-6;
       const nx = dx / dist, nz = dz / dist;
 
-      // chase to mid range, back off when crowded, strafe sideways constantly
       b.strafeT += dt;
       const strafe = Math.sin(b.strafeT * 1.7 + b.id);
       let mx = 0, mz = 0;
-      if (dist > 13) { mx = nx; mz = nz; }
-      else if (dist < 7) { mx = -nx; mz = -nz; }
-      mx += -nz * strafe * 0.8; mz += nx * strafe * 0.8;
+      if (b.botMelee) {
+        // relentless chaser: close the gap, weave a little
+        mx = nx; mz = nz;
+        mx += -nz * strafe * 0.35; mz += nx * strafe * 0.35;
+      } else {
+        // gunner: chase to mid range, back off when crowded, strafe constantly
+        if (dist > 13) { mx = nx; mz = nz; }
+        else if (dist < 7) { mx = -nx; mz = -nz; }
+        mx += -nz * strafe * 0.8; mz += nx * strafe * 0.8;
+      }
       const ml = Math.hypot(mx, mz);
       if (ml > 1e-6) {
         const step = b.botSpeed * dt;
@@ -483,13 +574,18 @@ class Room {
       } else b.moving = false;
       b.yaw = Math.atan2(dx, dz);
 
-      if (nowMs - b.lastShot >= b.botRof && dist < 42 && !this.level.segBlocked(b.x, b.z, target.x, target.z)) {
+      if (b.botMelee) {
+        if (dist < 2 && nowMs - b.lastShot >= b.botRof) {
+          b.lastShot = nowMs;
+          this.applyDamage(target, b, b.botDmg);
+        }
+      } else if (nowMs - b.lastShot >= b.botRof && dist < 42 && !this.level.segBlocked(b.x, b.z, target.x, target.z)) {
         b.lastShot = nowMs;
         this.broadcast({ t: 'shot', id: b.id, w: 'pistol' });
         const err = b.botAimErr;
         const d = [nx + (Math.random() - .5) * err, (CHEST_Y - EYE_Y) / dist + (Math.random() - .5) * err, nz + (Math.random() - .5) * err];
         const hit = this.raycastRay(b, d, MAX_RANGE);
-        if (hit && !hit.bot) this.applyDamage(hit, b, BOT_DMG);
+        if (hit && !hit.bot) this.applyDamage(hit, b, b.botDmg || BOT_DMG);
       }
     }
   }
@@ -521,6 +617,7 @@ class Room {
   }
 
   checkWin(candidate) {
+    if (this.mode === 'horde') return;   // horde ends when the squad wipes, not on a score
     if (this.gameOver || candidate.score < WIN_SCORE) return;
     this.gameOver = true;
     const board = [...this.players.values()]
@@ -536,6 +633,7 @@ class Room {
     this.mines = [];
     this.nades = [];
     this.removeBots(false);   // fresh waves next round
+    this.hordeWave = 0; this.waveBotsLeft = 0; this.intermissionUntil = 0;
     for (const p of this.players.values()) {
       p.score = 0; p.streak = 0; p.multi = 0;
       this.spawnPlayer(p);
@@ -557,6 +655,7 @@ class Room {
     if (this.players.size === 0) return;
     this.broadcast({
       t: 'snap',
+      ...(this.mode === 'horde' ? { wave: this.hordeWave } : {}),
       nades: this.nades.map(n => ({ id: n.id, x: +n.x.toFixed(2), y: +n.y.toFixed(2), z: +n.z.toFixed(2) })),
       players: [...this.players.values()].map(p => ({
         id: p.id, name: p.name, color: p.color,
@@ -569,12 +668,12 @@ class Room {
   }
 }
 
-function getRoom(code, levelName, musicName) {
+function getRoom(code, levelName, musicName, mode) {
   let r = rooms.get(code);
   if (!r) {
-    r = new Room(code, levelName, musicName);
+    r = new Room(code, levelName, musicName, mode);
     rooms.set(code, r);
-    console.log(`[room ${code}] opened — map ${r.levelName}, music ${r.musicName}`);
+    console.log(`[room ${code}] opened — map ${r.levelName}, music ${r.musicName}, mode ${r.mode}`);
   }
   return r;
 }
@@ -594,7 +693,7 @@ wss.on('connection', (ws) => {
     if (m.t === 'join' && !me) {
       const name = String(m.name || 'AGENT').toUpperCase().replace(/[^A-Z0-9 _-]/g, '').slice(0, 12) || 'AGENT';
       const code = String(m.room || 'LOBBY').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'LOBBY';
-      room = getRoom(code, m.level, m.music);
+      room = getRoom(code, m.level, m.music, m.mode);
       me = {
         id: nextId++, ws, name,
         color: COLORS[(nextId - 2) % COLORS.length],
@@ -605,6 +704,7 @@ wss.on('connection', (ws) => {
       room.players.set(me.id, me);
       ws.send(JSON.stringify({
         t: 'welcome', id: me.id, color: me.color, winScore: WIN_SCORE, room: code,
+        mode: room.mode,
         levelName: room.levelName, level: room.levelData,
         musicName: room.musicName, music: room.musicData,
         pickups: room.pickups.map(p => p.active),

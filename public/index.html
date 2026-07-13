@@ -55,9 +55,9 @@
   #nameInput:focus, #roomInput:focus { border-color:#c9c27f; }
   #roomInput { font-size:16px; letter-spacing:3px; }
   #roomInput::placeholder, #nameInput::placeholder { color:#5f6f4a; }
-  #levelSelect, #musicSelect { pointer-events:auto; font-family:inherit; font-size:16px; letter-spacing:3px; color:#e8e3c0; background:rgba(0,0,0,.5); border:2px solid #7a8a5a; padding:10px 16px; width:280px; margin-bottom:14px; text-transform:uppercase; outline:none; cursor:pointer; }
-  #levelSelect:focus, #musicSelect:focus { border-color:#c9c27f; }
-  #levelSelect option, #musicSelect option { background:#10190f; }
+  #levelSelect, #musicSelect, #modeSelect { pointer-events:auto; font-family:inherit; font-size:16px; letter-spacing:3px; color:#e8e3c0; background:rgba(0,0,0,.5); border:2px solid #7a8a5a; padding:10px 16px; width:280px; margin-bottom:14px; text-transform:uppercase; outline:none; cursor:pointer; }
+  #levelSelect:focus, #musicSelect:focus, #modeSelect:focus { border-color:#c9c27f; }
+  #levelSelect option, #musicSelect option, #modeSelect option { background:#10190f; }
   #editorLink, #musicEditorLink, #weaponEditorLink, #textureEditorLink { pointer-events:auto; color:#7a8a5a; font-size:14px; letter-spacing:3px; margin-top:14px; text-decoration:none; border-bottom:1px dotted #7a8a5a; }
   #editorLink:hover, #musicEditorLink:hover, #weaponEditorLink:hover, #textureEditorLink:hover { color:#c9c27f; border-color:#c9c27f; }
   #clickHint { position:absolute; left:50%; top:58%; transform:translateX(-50%); color:#0e150d; background:#c9c27f; font-size:20px; letter-spacing:5px; padding:10px 26px; box-shadow:4px 4px 0 rgba(0,0,0,.6); animation:blink 1.6s steps(2) infinite; }
@@ -140,6 +140,10 @@
   <h2>MULTIPLAYER DEATHMATCH &middot; LICENCE TO FRAG</h2>
   <input id="nameInput" maxlength="12" placeholder="CODENAME" autocomplete="off">
   <input id="roomInput" maxlength="8" placeholder="ROOM CODE (BLANK = LOBBY)" autocomplete="off">
+  <select id="modeSelect">
+    <option value="dm">MODE: DEATHMATCH</option>
+    <option value="horde">MODE: HORDE — CO-OP VS BOTS</option>
+  </select>
   <select id="levelSelect"><option value="FACILITY">MAP: FACILITY</option></select>
   <select id="musicSelect"><option value="FACILITY THEME">MUSIC: FACILITY THEME</option></select>
   <button class="menu-btn" id="startBtn">ENTER ARENA</button>
@@ -818,18 +822,19 @@ let ws = null, connected = false, joined = false;
 let latestBoard = [];
 let roomCode = 'LOBBY';
 let levelName = 'FACILITY';
-let requestedLevel = null, requestedMusic = null;   // what WE asked for — compared against the welcome
+let requestedLevel = null, requestedMusic = null, requestedMode = null;   // what WE asked for — compared against the welcome
+let roomMode = 'dm', hordeWave = 0;
 let pingMs = 0, lastPingSent = 0;
 const connStatus = document.getElementById('connStatus');
 
-function connect(name, room, level, music){
+function connect(name, room, level, music, mode){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}`);
   connStatus.textContent = 'CONTACTING HQ...';
-  requestedLevel = level; requestedMusic = music;
+  requestedLevel = level; requestedMusic = music; requestedMode = mode;
   ws.onopen = () => {
     connected = true;
-    ws.send(JSON.stringify({ t:'join', name, room, level, music }));
+    ws.send(JSON.stringify({ t:'join', name, room, level, music, mode }));
   };
   ws.onclose = () => {
     connected = false; joined = false;
@@ -865,12 +870,15 @@ function handleMsg(m){
       me.id = m.id; winScore = m.winScore || 10;
       roomCode = m.room || 'LOBBY';
       levelName = m.levelName || 'FACILITY';
+      roomMode = m.mode || 'dm'; hordeWave = 0;
       if(m.level) buildLevel(m.level);
       if(m.music) startMusic(m.music);
       // a room keeps its first player's map/music — tell the user if their pick was overridden
       {
         const norm = s => String(s || '').toUpperCase().replace(/[^A-Z0-9_-]/g, '');
-        if(requestedLevel && norm(requestedLevel) !== norm(m.levelName)){
+        if(requestedMode && requestedMode !== roomMode){
+          feedSys(`ROOM ${roomCode} IS A ${roomMode === 'horde' ? 'HORDE' : 'DEATHMATCH'} ROOM — MODE PICKS ONLY APPLY TO NEW ROOMS`);
+        } else if(requestedLevel && norm(requestedLevel) !== norm(m.levelName)){
           feedSys(`ROOM ${roomCode} ALREADY RUNNING MAP ${m.levelName} — MAP PICKS ONLY APPLY TO NEW ROOMS`);
         } else if(requestedMusic && m.musicName && norm(requestedMusic) !== norm(m.musicName)){
           feedSys(`ROOM ${roomCode} ALREADY PLAYING ${m.musicName}`);
@@ -885,6 +893,7 @@ function handleMsg(m){
       enterArena();
       break;
     case 'snap': {
+      if(m.wave !== undefined) hordeWave = m.wave;
       syncNades(m.nades);
       const seen = new Set();
       for(const p of m.players){
@@ -1096,13 +1105,15 @@ function updateHUD(){
   else if(me.reloading){ rh.textContent='RELOADING...'; rh.style.visibility='visible'; }
   else if(a.mag <= 2 && a.reserve > 0){ rh.textContent='PRESS R TO RELOAD'; rh.style.visibility='visible'; }
   else rh.style.visibility='hidden';
-  let strip = `FIRST TO ${winScore}`;
+  let strip;
   const others = latestBoard.filter(e => e.id !== me.id);
-  if(others.length){
+  if(roomMode === 'horde'){
+    strip = `HORDE — ${hordeWave ? 'WAVE ' + hordeWave : 'STANDBY'}  |  YOU ${me.score}`;
+  } else if(others.length){
     const leader = others.reduce((a,b)=> b.score > a.score ? b : a);
-    strip = `YOU ${me.score} — ${leader.name} ${leader.score}  |  ` + strip;
+    strip = `YOU ${me.score} — ${leader.name} ${leader.score}  |  FIRST TO ${winScore}`;
   } else {
-    strip = `YOU ${me.score}  |  ` + strip;
+    strip = `YOU ${me.score}  |  FIRST TO ${winScore}`;
   }
   document.getElementById('scoreStrip').textContent = strip;
   document.getElementById('waitNotice').style.display = others.length ? 'none' : 'block';
@@ -1500,8 +1511,9 @@ document.getElementById('startBtn').onclick = () => {
   const room = (roomInput.value || 'LOBBY').trim();
   const level = levelSelect.value || 'FACILITY';
   const music = musicSelect.value || 'FACILITY THEME';
+  const mode = document.getElementById('modeSelect').value || 'dm';
   document.getElementById('startBtn').disabled = true;
-  connect(name, room, level, music);
+  connect(name, room, level, music, mode);
 };
 function enterArena(){
   document.getElementById('startBtn').disabled = false;

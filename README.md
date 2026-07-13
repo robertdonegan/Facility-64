@@ -44,9 +44,12 @@ Desktop aim needs pointer lock, which browsers only grant on a click — if you 
 
 Weapons are pickups; you keep everything you've grabbed until you die and switch freely between them. Powerful weapons kick the camera on firing. Bullets spark where they land. Armor absorbs 70% of incoming damage, ammo crates refill whatever you're holding.
 
-## Solo play — bot waves
+## Game modes
 
-Alone in a room? After a 10-second grace period the announcer calls **TRAINING SIM ACTIVE** and hostile bots start arriving at mid-distance spawns. Each kill raises the wave: bots respawn faster, tougher, and more accurate, with reinforcements up to four at once. They score real kills — lose the shootout and a DRONE takes the round. The moment a second human joins, all hostiles withdraw.
+Pick a **MODE** when creating a room:
+
+- **DEATHMATCH** (default): free-for-all, first to 10 eliminations. Alone in a deathmatch room? After a 10-second grace the announcer calls **TRAINING SIM ACTIVE** and hostile bots arrive at mid-distance spawns — each kill raises the wave (faster, tougher, more accurate, up to four at once) and they withdraw the moment a second human joins.
+- **HORDE — CO-OP VS BOTS**: everyone teams up against zombie-style waves. Wave *n* sends 3+2*n* hostiles — early waves are relentless melee chasers, wave 3+ mixes in gunners — and each wave they get faster, tougher, and hit harder. Friendly fire is off, downed agents respawn while a teammate still stands, and the match ends only when the whole squad is dead at once (**THE HORDE — WAVE N** takes the round, then it resets). The HUD shows the current wave; kills count on the scoreboard.
 
 ## Terrain themes
 
