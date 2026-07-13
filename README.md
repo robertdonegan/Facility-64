@@ -34,13 +34,19 @@ Desktop aim needs pointer lock, which browsers only grant on a click — if you 
 
 | # | Weapon | Behaviour |
 |---|---|---|
-| 1 | **P9 Silenced** (spawn weapon) | 34 dmg semi-auto pistol |
-| 2 | **S12 Shotgun** | 6-pellet volley, 12 dmg per pellet, devastating close, useless past 26u |
-| 3 | **K74 Rifle** | full-auto, 16 dmg |
-| 4 | **D5K Marksman** | 80 dmg bolt rhythm, right-click/LT scope zoom |
-| 5 | **M7 Proximity Mine** | place at your feet, arms in 0.5s, detonates on enemy proximity with AoE falloff |
+| 1 | **Judo Chop** (always carried) | 50 dmg melee, 2.2u reach |
+| 2 | **P9 Silenced** (spawn weapon) | 34 dmg semi-auto pistol |
+| 3 | **S12 Shotgun** | 6-pellet volley, 12 dmg per pellet, devastating close, useless past 26u |
+| 4 | **K74 Rifle** | full-auto, 16 dmg |
+| 5 | **D5K Marksman** | 80 dmg bolt rhythm, right-click/LT scope zoom |
+| 6 | **GL-40 Launcher** | lobbed grenades — gravity, wall/floor bounces, 2s fuse, 5u blast (hurts you too) |
+| 7 | **M7 Proximity Mine** | place at your feet, arms in 0.5s, detonates on enemy proximity with AoE falloff |
 
-Weapons are pickups; you keep everything you've grabbed until you die and switch freely between them. Armor absorbs 70% of incoming damage, ammo crates refill whatever you're holding.
+Weapons are pickups; you keep everything you've grabbed until you die and switch freely between them. Powerful weapons kick the camera on firing. Bullets spark where they land. Armor absorbs 70% of incoming damage, ammo crates refill whatever you're holding.
+
+## Solo play — bot waves
+
+Alone in a room? After a 10-second grace period the announcer calls **TRAINING SIM ACTIVE** and hostile bots start arriving at mid-distance spawns. Each kill raises the wave: bots respawn faster, tougher, and more accurate, with reinforcements up to four at once. They score real kills — lose the shootout and a DRONE takes the round. The moment a second human joins, all hostiles withdraw.
 
 ## Terrain themes
 
@@ -48,7 +54,7 @@ Levels declare one of five themes, which drive textures, lighting, fog, and cosm
 
 ## Ready-made maps
 
-Five maps ship in the MAP dropdown: **FACILITY** (built-in), plus **JUNGLE TEMPLE**, **HEADQUARTERS**, **CATHEDRAL**, and **SKYLINE** — one per theme, stored as JSON in `levels/`. The first player to create a room picks its map (and music); everyone joining plays it.
+Five maps ship in the MAP dropdown: **FACILITY** (built-in), plus **JUNGLE TEMPLE**, **HEADQUARTERS**, **CATHEDRAL**, and **SKYLINE** — one per theme, stored as JSON in `levels/`. Pick **RANDOM** and the server generates a fresh procedural layout for that room — random size, random theme, always fully connected. The first player to create a room picks its map (and music); everyone joining plays it.
 
 ## The editors
 
