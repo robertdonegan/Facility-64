@@ -42,7 +42,7 @@ Desktop aim needs pointer lock, which browsers only grant on a click — if you 
 | 6 | **GL-40 Launcher** | lobbed grenades — gravity, wall/floor bounces, 2s fuse, 5u blast (hurts you too) |
 | 7 | **M7 Proximity Mine** | place at your feet, arms in 0.5s, detonates on enemy proximity with AoE falloff |
 
-Weapons are pickups; you keep everything you've grabbed until you die and switch freely between them. Powerful weapons kick the camera on firing. Bullets spark where they land. Armor absorbs 70% of incoming damage, ammo crates refill whatever you're holding.
+Weapons are pickups; you keep everything you've grabbed until you die and switch freely between them. Powerful weapons kick the camera on firing. Bullets spark where they land. Armor vests absorb 70% of incoming damage, ammo crates refill whatever you're holding, and medkits heal +50. Every pickup floats over a colour-coded glowing ring so you can read it at range.
 
 ## Game modes
 
