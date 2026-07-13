@@ -38,6 +38,7 @@ const BOT_NAMES = ['DRONE', 'HUNTER', 'STALKER', 'REAPER'];
 const BOT_COLOR = 0x3a3a3a;
 const BOT_DMG = 14, BOT_RESPAWN_GAP_MS = 1500;
 const BOT_GRACE_MS = parseInt(process.env.BOT_GRACE_MS || '10000', 10);   // solo time before hostiles arrive
+const LOBBY_BOT_GRACE_MS = parseInt(process.env.LOBBY_BOT_GRACE_MS || '30000', 10);   // lobby waits longer so humans can join
 
 /* ---------- custom levels ---------- */
 const LEVELS_DIR = path.join(__dirname, 'levels');
@@ -202,6 +203,7 @@ class Room {
     this.hordeWave = 0;          // horde mode: current wave (0 = not started)
     this.waveBotsLeft = 0;       // horde mode: bots still to spawn this wave
     this.intermissionUntil = 0;  // horde mode: pause between waves
+    this.hordeLegacy = 0;        // horde mode: waves survived in past runs — each run starts harder
   }
 
   broadcast(obj, exceptId = null) {
@@ -469,7 +471,7 @@ class Room {
       return;
     }
     if (!this.soloSince) this.soloSince = nowMs;
-    if (nowMs - this.soloSince < BOT_GRACE_MS) return;
+    if (nowMs - this.soloSince < (this.code === 'LOBBY' ? LOBBY_BOT_GRACE_MS : BOT_GRACE_MS)) return;
     const targetCount = Math.min(4, 2 + Math.floor(this.botWave / 3));
     const bots = [...this.players.values()].filter(p => p.bot);
     if (bots.length < targetCount && nowMs >= this.nextBotAt) {
@@ -492,8 +494,9 @@ class Room {
   }
 
   spawnHordeBot() {
-    const w = this.hordeWave;
-    const melee = w < 3 || Math.random() < 0.7;   // early waves are pure chasers
+    // effective difficulty climbs with waves survived in previous runs too
+    const w = this.hordeWave + Math.floor(this.hordeLegacy / 3);
+    const melee = this.hordeWave < 3 || Math.random() < 0.7;   // early waves are pure chasers
     const bot = {
       id: nextId++, ws: null, bot: true,
       name: (melee ? 'ZOMBIE' : 'GUNNER') + '-' + (++this.botSeq),
@@ -545,6 +548,7 @@ class Room {
 
   hordeOver() {
     this.gameOver = true;
+    this.hordeLegacy += this.hordeWave;   // next run in this room starts meaner
     const board = [...this.players.values()].filter(p => !p.bot)
       .sort((a, b) => b.score - a.score)
       .map(p => ({ name: p.name, score: p.score }));
