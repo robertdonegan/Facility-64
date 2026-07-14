@@ -182,9 +182,13 @@ let nextId = 1;
 class Room {
   constructor(code, levelName, musicName, mode) {
     this.code = code;
-    this.mode = mode === 'horde' ? 'horde' : 'dm';
+    this.mode = ['horde', 'maze'].includes(mode) ? mode : 'dm';
     this.levelName = levelFileName(levelName) || 'FACILITY';
     this.levelData = loadLevelData(this.levelName);
+    if (this.mode === 'maze') {
+      const v = LEVEL.validateLevel(LEVEL.generateMaze({ cells: 9 }));
+      if (v.ok) { this.levelData = v.clean; this.levelName = 'THE MAZE'; }
+    }
     this.level = LEVEL.makeLevel(this.levelData);
     this.musicName = musicFileName(musicName) || musicFileName(MUSIC.DEFAULT_TRACK.name);
     this.musicData = loadMusicData(this.musicName);
@@ -395,8 +399,8 @@ class Room {
 
   applyDamage(target, attacker, dmg) {
     if (!target.alive || this.gameOver) return;
-    // horde is co-op: humans cannot hurt each other (self-damage still applies)
-    if (this.mode === 'horde' && !attacker.bot && !target.bot && attacker.id !== target.id) return;
+    // horde and maze are co-op: humans cannot hurt each other (self-damage still applies)
+    if (this.mode !== 'dm' && !attacker.bot && !target.bot && attacker.id !== target.id) return;
     const absorbed = Math.min(target.armor, dmg * 0.7);
     target.armor = Math.round((target.armor - absorbed) * 10) / 10;
     target.hp -= (dmg - absorbed);
@@ -408,8 +412,8 @@ class Room {
       this.handleStreaks(attacker, target);
       this.checkWin(attacker);
       if (target.bot) {
-        if (this.mode === 'horde') {
-          this.players.delete(target.id);   // wave units stay down; snap absence cleans the client
+        if (this.mode !== 'dm') {
+          this.players.delete(target.id);   // horde waves and maze guards stay down
         } else {
           this.botWave++;
           if (this.botWave % 3 === 0) this.announce(`HOSTILE REINFORCEMENTS — MARK ${1 + this.botWave / 3}`, 'Reinforcements inbound');
@@ -419,7 +423,7 @@ class Room {
         // squad wiped?
         if (![...this.players.values()].some(p => !p.bot && p.alive)) { this.hordeOver(); return; }
       }
-      if (!this.gameOver && !(this.mode === 'horde' && target.bot)) {
+      if (!this.gameOver && !(this.mode !== 'dm' && target.bot)) {
         setTimeout(() => {
           if (this.players.has(target.id) && !this.gameOver) {
             this.spawnPlayer(target);
@@ -484,6 +488,7 @@ class Room {
 
   manageBots(nowMs) {
     if (this.mode === 'horde') return this.manageHorde(nowMs);
+    if (this.mode === 'maze') return this.manageMaze();
     const humans = this.humanCount();
     if (humans !== 1 || this.gameOver) {
       this.soloSince = 0;
@@ -566,6 +571,73 @@ class Room {
     }
   }
 
+  /* -------- maze mode: guarded labyrinth, trophy at the centre -------- */
+  spawnMazeGuard(spot) {
+    const melee = Math.random() < 0.6;
+    const bot = {
+      id: nextId++, ws: null, bot: true,
+      name: (melee ? 'LURKER' : 'WARDEN') + '-' + (++this.botSeq),
+      color: BOT_COLOR,
+      x: 0, z: 0, yaw: 0, hp: 100, armor: 0, score: 0, streak: 0, multi: 0, lastKillAt: 0,
+      alive: false, weapon: 'pistol', lastShot: 0, lastMine: 0,
+      owned: { chop: true, pistol: true, rifle: false, shotgun: false, sniper: false, launcher: false, mines: false },
+      strafeT: Math.random() * 10,
+      botMelee: melee,
+      botGuard: true, botAggro: 11, enraged: false,
+      botSpeed: melee ? 4.4 : 3.4,
+      botAimErr: 0.2,
+      botRof: melee ? 850 : 1050,
+      botDmg: melee ? 20 : BOT_DMG,
+    };
+    this.players.set(bot.id, bot);
+    this.broadcast({ t: 'joined', id: bot.id, name: bot.name });
+    this.spawnPlayer(bot, spot);
+    bot.weapon = melee ? 'chop' : 'pistol';
+    bot.hp = 90;
+  }
+
+  mazeFreeSpot(minSpawnDist) {
+    const A = this.level.ARENA;
+    for (let i = 0; i < 60; i++) {
+      const x = Math.round((Math.random() * 2 - 1) * (A - 2));
+      const z = Math.round((Math.random() * 2 - 1) * (A - 2));
+      if (this.level.collides(x, z, 0.7)) continue;
+      if (this.level.SPAWNS.some(s => Math.hypot(s[0] - x, s[1] - z) < minSpawnDist)) continue;
+      return [x, z];
+    }
+    return null;
+  }
+
+  manageMaze() {
+    if (this.gameOver || this.mazePopulated || this.humanCount() === 0) return;
+    this.mazePopulated = true;
+    const trophy = this.level.PICKUPS.find(p => p.kind === 'trophy');
+    // two guards watch the trophy chamber approaches, the rest lurk in corridors
+    let placed = 0;
+    for (let i = 0; i < 30 && placed < 2; i++) {
+      const a = Math.random() * Math.PI * 2, r = 3 + Math.random() * 4;
+      const x = Math.round(trophy.x + Math.cos(a) * r), z = Math.round(trophy.z + Math.sin(a) * r);
+      if (!this.level.collides(x, z, 0.7)) { this.spawnMazeGuard([x, z]); placed++; }
+    }
+    const lurkers = 5 + Math.round(this.level.ARENA / 9);
+    for (let i = 0; i < lurkers; i++) {
+      const spot = this.mazeFreeSpot(9);
+      if (spot) this.spawnMazeGuard(spot);
+    }
+    this.announce('THE MAZE IS WATCHING — CLAIM THE TROPHY', 'The maze is watching');
+  }
+
+  trophyWin(player) {
+    if (this.gameOver) return;
+    this.gameOver = true;
+    const board = [...this.players.values()].filter(p => !p.bot)
+      .sort((a, b) => b.score - a.score)
+      .map(p => ({ name: p.name, score: p.score }));
+    this.announce(`${player.name} CLAIMED THE TROPHY`, `${player.name} claimed the trophy`);
+    this.broadcast({ t: 'gameOver', winner: player.id, winnerName: player.name, board, resetIn: RESET_MS });
+    this.resetTimer = setTimeout(() => this.resetMatch(), RESET_MS);
+  }
+
   hordeOver() {
     this.gameOver = true;
     this.hordeLegacy += this.hordeWave;   // next run in this room starts meaner
@@ -590,6 +662,12 @@ class Room {
       const dx = target.x - b.x, dz = target.z - b.z;
       const dist = Math.hypot(dx, dz) || 1e-6;
       const nx = dx / dist, nz = dz / dist;
+
+      // maze guards hold their post until someone comes close — then never calm down
+      if (b.botGuard && !b.enraged) {
+        if (dist > b.botAggro || this.level.segBlocked(b.x, b.z, target.x, target.z)) { b.moving = false; continue; }
+        b.enraged = true;
+      }
 
       b.strafeT += dt;
       const strafe = Math.sin(b.strafeT * 1.7 + b.id);
@@ -658,7 +736,7 @@ class Room {
   }
 
   checkWin(candidate) {
-    if (this.mode === 'horde') return;   // horde ends when the squad wipes, not on a score
+    if (this.mode !== 'dm') return;   // horde ends on squad wipe, maze on the trophy — not on score
     if (this.gameOver || candidate.score < WIN_SCORE) return;
     this.gameOver = true;
     const board = [...this.players.values()]
@@ -670,6 +748,12 @@ class Room {
 
   resetMatch() {
     this.gameOver = false;
+    if (this.mode === 'maze') {
+      // a fresh labyrinth every round
+      const v = LEVEL.validateLevel(LEVEL.generateMaze({ cells: 9 }));
+      if (v.ok) this.levelData = v.clean;
+      this.mazePopulated = false;
+    }
     this.level = LEVEL.makeLevel(this.levelData);   // recloses secret walls
     this.secretsOpen = [];
     this.pickups = this.level.PICKUPS.map((p, i) => ({ ...p, idx: i, active: true, respawnAt: 0 }));
@@ -681,7 +765,10 @@ class Room {
       p.score = 0; p.streak = 0; p.multi = 0;
       this.spawnPlayer(p);
     }
-    this.broadcast({ t: 'reset', pickups: this.pickups.map(p => p.active) });
+    this.broadcast({
+      t: 'reset', pickups: this.pickups.map(p => p.active),
+      ...(this.mode === 'maze' ? { level: this.levelData, levelName: this.levelName } : {}),
+    });
   }
 
   tick(nowMs) {
@@ -798,6 +885,13 @@ wss.on('connection', (ws) => {
         const p = room.pickups[+m.idx];
         if (!p || !p.active) break;
         if ((p.x - me.x) ** 2 + (p.z - me.z) ** 2 > 2.5) break;
+        if (p.kind === 'trophy') {
+          if (room.mode !== 'maze') break;
+          p.active = false;
+          room.broadcast({ t: 'pickup', idx: p.idx, active: false, by: me.id, kind: p.kind });
+          room.trophyWin(me);
+          break;
+        }
         if (p.kind === 'rifle' || p.kind === 'shotgun' || p.kind === 'sniper' || p.kind === 'launcher') { me.weapon = p.kind; me.owned[p.kind] = true; }
         else if (p.kind === 'armor') { if (me.armor >= 100) break; me.armor = 100; }
         else if (p.kind === 'health') { if (me.hp >= 100) break; me.hp = Math.min(100, me.hp + 50); }

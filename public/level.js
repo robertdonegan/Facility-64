@@ -47,7 +47,7 @@
     ],
   };
 
-  const PICKUP_KINDS = ['rifle', 'shotgun', 'sniper', 'launcher', 'armor', 'ammo', 'mines', 'health'];
+  const PICKUP_KINDS = ['rifle', 'shotgun', 'sniper', 'launcher', 'armor', 'ammo', 'mines', 'health', 'trophy'];
   const THEMES = ['facility', 'jungle', 'office', 'church', 'rooftop'];
   const LIMITS = { arenaMin: 16, arenaMax: 80, blocks: 300, spawns: 32, pickups: 32, nameLen: 16 };
 
@@ -272,7 +272,67 @@
     return { name: opts.name || 'RANDOM', theme, arena, blocks, spawns, pickups };
   }
 
-  const LEVEL = { DEFAULT_LEVEL_DATA, makeLevel, validateLevel, generateArena, LIMITS, THEMES };
+  /* Dense maze for MAZE mode: full walls (no door gaps) on every closed edge of a
+     spanning tree, a handful of loops and secret pushwall shortcuts, the trophy at
+     the centre, players starting from the rim, and supply caches along the way. */
+  function generateMaze(opts) {
+    opts = opts || {};
+    const rng = opts.rng || Math.random;
+    const theme = THEMES.includes(opts.theme) ? opts.theme : THEMES[Math.floor(rng() * THEMES.length)];
+    const N = Math.max(6, Math.min(11, Math.round(opts.cells || 9)));   // N x N cells
+    const cell = 5;
+    const arena = Math.ceil((N * cell) / 2) + 1;
+    const ox = -N * cell / 2, oz = -N * cell / 2;
+    const cellCenter = (cx, cz) => [ox + (cx + 0.5) * cell, oz + (cz + 0.5) * cell];
+    const idx = (cx, cz) => cz * N + cx;
+
+    const parent = Array.from({ length: N * N }, (_, i) => i);
+    const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+    const union = (a, b) => { const ra = find(a), rb = find(b); if (ra === rb) return false; parent[ra] = rb; return true; };
+
+    const edges = [];
+    for (let cz = 0; cz < N; cz++) for (let cx = 0; cx < N; cx++) {
+      if (cx < N - 1) edges.push({ a: idx(cx, cz), b: idx(cx + 1, cz), cx, cz, dir: 'v' });
+      if (cz < N - 1) edges.push({ a: idx(cx, cz), b: idx(cx, cz + 1), cx, cz, dir: 'h' });
+    }
+    for (let i = edges.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [edges[i], edges[j]] = [edges[j], edges[i]]; }
+
+    const blocks = [];
+    const THICK = 1, HEIGHT = 5;
+    for (const e of edges) {
+      if (union(e.a, e.b)) continue;            // open corridor of the spanning tree
+      if (rng() < 0.06) continue;               // a few loops so it's not a strict tree
+      const kind = rng() < 0.07 ? 'secret' : 'wall';   // Wolfenstein shortcuts
+      if (e.dir === 'v') blocks.push([ox + (e.cx + 1) * cell, oz + e.cz * cell + cell / 2, THICK, cell + THICK, HEIGHT, kind]);
+      else blocks.push([ox + e.cx * cell + cell / 2, oz + (e.cz + 1) * cell, cell + THICK, THICK, HEIGHT, kind]);
+    }
+
+    const mid = Math.floor(N / 2);
+    const [tx, tz] = cellCenter(mid, mid);
+    const pickups = [{ kind: 'trophy', x: Math.round(tx), z: Math.round(tz) }];
+
+    // rim spawns: the four corners and edge midpoints
+    const rim = [[0, 0], [N - 1, N - 1], [0, N - 1], [N - 1, 0], [mid, 0], [mid, N - 1], [0, mid], [N - 1, mid]];
+    const spawns = rim.map(([cx, cz]) => {
+      const [x, z] = cellCenter(cx, cz);
+      return [Math.round(x), Math.round(z)];
+    });
+
+    // supply caches scattered through interior cells
+    const kinds = ['health', 'ammo', 'armor', 'shotgun', 'health', 'ammo', 'mines', 'rifle'];
+    let k = 0;
+    for (let cz = 1; cz < N - 1 && k < kinds.length; cz++) for (let cx = 1; cx < N - 1 && k < kinds.length; cx++) {
+      if (cx === mid && cz === mid) continue;
+      if (rng() < 0.14) {
+        const [x, z] = cellCenter(cx, cz);
+        pickups.push({ kind: kinds[k++], x: Math.round(x), z: Math.round(z) });
+      }
+    }
+
+    return { name: 'THE MAZE', theme, arena, blocks, spawns, pickups };
+  }
+
+  const LEVEL = { DEFAULT_LEVEL_DATA, makeLevel, validateLevel, generateArena, generateMaze, LIMITS, THEMES };
   if (typeof module !== 'undefined' && module.exports) module.exports = LEVEL;
   else root.LEVEL = LEVEL;
 })(typeof self !== 'undefined' ? self : this);
