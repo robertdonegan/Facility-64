@@ -49,7 +49,7 @@
 
   const PICKUP_KINDS = ['rifle', 'shotgun', 'sniper', 'launcher', 'armor', 'ammo', 'mines', 'health', 'trophy', 'stairs'];
   const THEMES = ['facility', 'jungle', 'office', 'church', 'rooftop'];
-  const LIMITS = { arenaMin: 16, arenaMax: 80, blocks: 300, spawns: 32, pickups: 32, nameLen: 16 };
+  const LIMITS = { arenaMin: 16, arenaMax: 80, blocks: 300, spawns: 32, pickups: 32, nameLen: 16, maxTop: 14 };
 
   /* Validate untrusted level data. Returns { ok, error?, clean? } where clean
      is a sanitized copy safe to run on the server. */
@@ -66,14 +66,19 @@
     if (!Array.isArray(data.blocks) || data.blocks.length > LIMITS.blocks) return fail(`blocks must be an array of at most ${LIMITS.blocks}`);
     const blocks = [];
     for (const b of data.blocks) {
+      // block: [cx, cz, sx, sz, sy, kind, by=0, dir=0]
+      // by = base elevation (platforms float, you can walk beneath); ramp rises by→by+sy along dir
       if (!Array.isArray(b) || b.length < 6) return fail('each block must be [cx,cz,sx,sz,sy,kind]');
       const [cx, cz, sx, sz, sy] = b.map(Number);
-      const kind = b[5] === 'crate' ? 'crate' : b[5] === 'secret' ? 'secret' : 'wall';
+      const kind = b[5] === 'crate' ? 'crate' : b[5] === 'secret' ? 'secret' : b[5] === 'ramp' ? 'ramp' : 'wall';
       if (![cx, cz, sx, sz, sy].every(isFinite)) return fail('block values must be numbers');
       if (sx < 0.5 || sz < 0.5 || sx > arena * 2 || sz > arena * 2) return fail('block footprint out of range');
-      if (sy < 1 || sy > 10) return fail('block height must be 1-10');
+      if (sy < (kind === 'ramp' ? 0.5 : 0.2) || sy > 10) return fail('block height must be 0.2-10');
       if (Math.abs(cx) > arena || Math.abs(cz) > arena) return fail('block centre outside arena');
-      blocks.push([cx, cz, sx, sz, sy, kind]);
+      const by = isFinite(+b[6]) ? Math.max(0, Math.min(10, +b[6])) : 0;
+      if (by + sy > LIMITS.maxTop) return fail(`block top must stay under ${LIMITS.maxTop}`);
+      const dir = [0, 1, 2, 3].includes(+b[7]) ? +b[7] : 0;   // ramp rises toward: 0=-z 1=+x 2=+z 3=-x
+      blocks.push([cx, cz, sx, sz, sy, kind, by, dir]);
     }
 
     if (!Array.isArray(data.spawns) || data.spawns.length < 2 || data.spawns.length > LIMITS.spawns) {
@@ -109,19 +114,53 @@
     ];
     const SPAWNS = data.spawns.map(s => [+s[0], +s[1]]);
     const PICKUPS = data.pickups.map(p => ({ kind: p.kind, x: +p.x, z: +p.z }));
-    const COLLIDERS = BLOCKS.map(([cx, cz, sx, sz, sy, kind]) => ({
-      minX: cx - sx / 2, maxX: cx + sx / 2, minZ: cz - sz / 2, maxZ: cz + sz / 2, h: sy,
-      kind: kind || 'wall', open: false,
+    const COLLIDERS = BLOCKS.map(([cx, cz, sx, sz, sy, kind, by, dir]) => ({
+      minX: cx - sx / 2, maxX: cx + sx / 2, minZ: cz - sz / 2, maxZ: cz + sz / 2,
+      y0: by || 0, y1: (by || 0) + sy, h: sy,
+      kind: kind || 'wall', dir: dir || 0, open: false,
     }));
 
-    function collides(x, z, r) {
-      if (x < -ARENA + r + 0.5 || x > ARENA - r - 0.5 || z < -ARENA + r + 0.5 || z > ARENA - r - 0.5) return true;
+    const PLAYER_H = 1.7, STEP = 0.55;
+
+    /* the walkable surface height of a ramp collider at a point inside its footprint */
+    function rampSurface(c, x, z) {
+      let t;
+      if (c.dir === 0) t = (c.maxZ - z) / (c.maxZ - c.minZ);        // rises toward -z
+      else if (c.dir === 2) t = (z - c.minZ) / (c.maxZ - c.minZ);   // rises toward +z
+      else if (c.dir === 1) t = (x - c.minX) / (c.maxX - c.minX);   // rises toward +x
+      else t = (c.maxX - x) / (c.maxX - c.minX);                    // rises toward -x
+      return c.y0 + (c.y1 - c.y0) * Math.max(0, Math.min(1, t));
+    }
+
+    /* highest surface under (x,z) that feet at feetY could stand on (within step-up reach) */
+    function groundAt(x, z, feetY, step) {
+      if (step === undefined) step = STEP;
+      let support = 0;
       for (const c of COLLIDERS) {
         if (c.open) continue;
+        if (x < c.minX || x > c.maxX || z < c.minZ || z > c.maxZ) continue;
+        const surf = c.kind === 'ramp' ? rampSurface(c, x, z) : c.y1;
+        if (surf <= feetY + step && surf > support) support = surf;
+      }
+      return support;
+    }
+    /* the topmost surface of a column, regardless of reach — pickups/spawns sit here */
+    function topAt(x, z) { return groundAt(x, z, 1e9, 0); }
+
+    /* horizontal collision for a body standing at feetY (ramps never block sideways;
+       blocks whose top is within step reach become floors instead of obstacles) */
+    function collides3D(x, z, r, feetY) {
+      if (x < -ARENA + r + 0.5 || x > ARENA - r - 0.5 || z < -ARENA + r + 0.5 || z > ARENA - r - 0.5) return true;
+      const fy = feetY || 0;
+      for (const c of COLLIDERS) {
+        if (c.open || c.kind === 'ramp') continue;
+        if (c.y0 >= fy + PLAYER_H || c.y1 <= fy + STEP) continue;
         if (x > c.minX - r && x < c.maxX + r && z > c.minZ - r && z < c.maxZ + r) return true;
       }
       return false;
     }
+    /* legacy 2D entry point — identical to the old behaviour for ground-level bodies */
+    function collides(x, z, r) { return collides3D(x, z, r, 0); }
 
     /* Wolfenstein-style pushwalls: a 'secret' block stops blocking once opened.
        idx is the index into BLOCKS (perimeter walls included) — identical on
@@ -159,11 +198,35 @@
       return true;
     }
     function segBlocked(ax, az, bx, bz) {
-      for (const c of COLLIDERS) { if (!c.open && segHitsRect(ax, az, bx, bz, c)) return true; }
+      for (const c of COLLIDERS) { if (!c.open && c.kind !== 'ramp' && segHitsRect(ax, az, bx, bz, c)) return true; }
       return false;
     }
 
-    return { name: data.name || 'UNTITLED', theme: THEMES.includes(data.theme) ? data.theme : 'facility', ARENA, BLOCKS, SPAWNS, PICKUPS, COLLIDERS, collides, segBlocked, openSecret, secretAt };
+    /* full 3D occlusion: slab test on x, y, and z — elevated platforms only block
+       rays that actually cross their vertical span, so you can shoot beneath them */
+    function seg3DBlocked(ax, ay, az, bx, by2, bz) {
+      const d = [bx - ax, by2 - ay, bz - az];
+      for (const c of COLLIDERS) {
+        if (c.open || c.kind === 'ramp') continue;
+        let t0 = 0, t1 = 1, ok = true;
+        const lo = [c.minX, c.y0, c.minZ], hi = [c.maxX, c.y1, c.maxZ], o = [ax, ay, az];
+        for (let i = 0; i < 3; i++) {
+          if (Math.abs(d[i]) < 1e-9) { if (o[i] < lo[i] || o[i] > hi[i]) { ok = false; break; } }
+          else {
+            let tA = (lo[i] - o[i]) / d[i], tB = (hi[i] - o[i]) / d[i];
+            if (tA > tB) { const tmp = tA; tA = tB; tB = tmp; }
+            if (tA > t0) t0 = tA;
+            if (tB < t1) t1 = tB;
+            if (t0 > t1) { ok = false; break; }
+          }
+        }
+        if (ok) return true;
+      }
+      return false;
+    }
+
+    return { name: data.name || 'UNTITLED', theme: THEMES.includes(data.theme) ? data.theme : 'facility', ARENA, BLOCKS, SPAWNS, PICKUPS, COLLIDERS,
+      collides, collides3D, groundAt, topAt, segBlocked, seg3DBlocked, openSecret, secretAt };
   }
 
   /* Procedurally generate a full level: an NxN room grid carved with a randomized
