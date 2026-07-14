@@ -155,6 +155,7 @@
     <option value="dm">MODE: DEATHMATCH</option>
     <option value="horde">MODE: HORDE — CO-OP VS BOTS</option>
     <option value="maze">MODE: MAZE — RACE TO THE TROPHY</option>
+    <option value="raid">MODE: RAID — 20-STOREY TOWER</option>
   </select>
   <select id="levelSelect"><option value="FACILITY">MAP: FACILITY</option></select>
   <select id="musicSelect"><option value="SHADOW PROTOCOL">MUSIC: SHADOW PROTOCOL</option></select>
@@ -355,6 +356,18 @@ function makePickupMesh(kind){
     const beam = new THREE.Mesh(new THREE.CylinderGeometry(.5,.9,4.6,10,1,true),
       new THREE.MeshBasicMaterial({ color:0xffd75e, transparent:true, opacity:.12, side:THREE.DoubleSide, depthWrite:false }));
     beam.position.y = 1.8; mesh.add(beam);
+  } else if(kind === 'stairs'){
+    // glowing stairwell marker: ascending steps under a green beam
+    mesh = new THREE.Mesh(new THREE.BoxGeometry(.9,.16,.5), new THREE.MeshLambertMaterial({ color:0x3a4538 }));
+    for(let i=1;i<4;i++){
+      const step = new THREE.Mesh(new THREE.BoxGeometry(.9,.16,.5), new THREE.MeshLambertMaterial({ color:0x4d5a4a }));
+      step.position.set(0, i*.2, -i*.32); mesh.add(step);
+    }
+    const glow = new THREE.Mesh(new THREE.BoxGeometry(1,.05,1.6), new THREE.MeshBasicMaterial({ color:0x9fd05a }));
+    glow.position.set(0,-.14,-.45); mesh.add(glow);
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(.55,.95,4.6,10,1,true),
+      new THREE.MeshBasicMaterial({ color:0x9fd05a, transparent:true, opacity:.12, side:THREE.DoubleSide, depthWrite:false }));
+    beam.position.y = 1.8; mesh.add(beam);
   } else if(kind === 'mines'){
     mesh = new THREE.Mesh(new THREE.CylinderGeometry(.35,.4,.18,10), new THREE.MeshLambertMaterial({ color:0x8a2f2f }));
   } else {
@@ -372,7 +385,7 @@ function makePickupMesh(kind){
 
   // every pickup floats over a glowing ring in its signature colour — readable at range
   const RING_COLORS = { rifle:0xc9c27f, shotgun:0xc9884a, sniper:0x6ad0a0, launcher:0xb08ae8,
-                        armor:0x5a8aff, ammo:0xd8b34a, mines:0xff5a4a, health:0xff6a6a, trophy:0xffd75e };
+                        armor:0x5a8aff, ammo:0xd8b34a, mines:0xff5a4a, health:0xff6a6a, trophy:0xffd75e, stairs:0x9fd05a };
   const ring = new THREE.Mesh(new THREE.CylinderGeometry(.72,.72,.045,20),
     new THREE.MeshBasicMaterial({ color: RING_COLORS[kind] || 0xffffff, transparent:true, opacity:.55 }));
   ring.position.y = -.85;
@@ -968,7 +981,7 @@ let latestBoard = [];
 let roomCode = 'LOBBY';
 let levelName = 'FACILITY';
 let requestedLevel = null, requestedMusic = null, requestedMode = null;   // what WE asked for — compared against the welcome
-let roomMode = 'dm', hordeWave = 0;
+let roomMode = 'dm', hordeWave = 0, raidFloor = 1;
 let pingMs = 0, lastPingSent = 0;
 const connStatus = document.getElementById('connStatus');
 
@@ -1041,6 +1054,7 @@ function handleMsg(m){
       break;
     case 'snap': {
       if(m.wave !== undefined) hordeWave = m.wave;
+      if(m.floor !== undefined) raidFloor = m.floor;
       syncNades(m.nades);
       const seen = new Set();
       for(const p of m.players){
@@ -1263,6 +1277,8 @@ function updateHUD(){
     strip = `HORDE — ${hordeWave ? 'WAVE ' + hordeWave : 'STANDBY'}  |  YOU ${me.score}`;
   } else if(roomMode === 'maze'){
     strip = `THE MAZE — FIND THE TROPHY  |  KILLS ${me.score}`;
+  } else if(roomMode === 'raid'){
+    strip = `${levelName} / 20 — FIND THE STAIRS  |  KILLS ${me.score}`;
   } else if(others.length){
     const leader = others.reduce((a,b)=> b.score > a.score ? b : a);
     strip = `YOU ${me.score} — ${leader.name} ${leader.score}  |  FIRST TO ${winScore}`;

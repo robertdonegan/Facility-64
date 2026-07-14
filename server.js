@@ -37,6 +37,7 @@ const NADE_DMG = 90, NADE_BLAST_R = 5, MAX_NADES_PER_ROOM = 12;
 const BOT_NAMES = ['DRONE', 'HUNTER', 'STALKER', 'REAPER'];
 const BOT_COLOR = 0x3a3a3a;
 const BOT_DMG = 14, BOT_RESPAWN_GAP_MS = 1500;
+const RAID_FLOORS = parseInt(process.env.RAID_FLOORS || '20', 10);
 const BOT_GRACE_MS = parseInt(process.env.BOT_GRACE_MS || '10000', 10);   // solo time before hostiles arrive
 const LOBBY_BOT_GRACE_MS = parseInt(process.env.LOBBY_BOT_GRACE_MS || '30000', 10);   // lobby waits longer so humans can join
 
@@ -182,12 +183,17 @@ let nextId = 1;
 class Room {
   constructor(code, levelName, musicName, mode) {
     this.code = code;
-    this.mode = ['horde', 'maze'].includes(mode) ? mode : 'dm';
+    this.mode = ['horde', 'maze', 'raid'].includes(mode) ? mode : 'dm';
     this.levelName = levelFileName(levelName) || 'FACILITY';
     this.levelData = loadLevelData(this.levelName);
     if (this.mode === 'maze') {
       const v = LEVEL.validateLevel(LEVEL.generateMaze({ cells: 9 }));
       if (v.ok) { this.levelData = v.clean; this.levelName = 'THE MAZE'; }
+    }
+    if (this.mode === 'raid') {
+      this.raidFloor = 1;
+      this.raidUp = Math.random() < 0.5;   // half the towers you climb, half you descend
+      this.loadRaidFloor();
     }
     this.level = LEVEL.makeLevel(this.levelData);
     this.musicName = musicFileName(musicName) || musicFileName(MUSIC.DEFAULT_TRACK.name);
@@ -489,6 +495,7 @@ class Room {
   manageBots(nowMs) {
     if (this.mode === 'horde') return this.manageHorde(nowMs);
     if (this.mode === 'maze') return this.manageMaze();
+    if (this.mode === 'raid') return this.manageRaid();
     const humans = this.humanCount();
     if (humans !== 1 || this.gameOver) {
       this.soloSince = 0;
@@ -571,8 +578,8 @@ class Room {
     }
   }
 
-  /* -------- maze mode: guarded labyrinth, trophy at the centre -------- */
-  spawnMazeGuard(spot) {
+  /* -------- guard bots: shared by maze (fixed tier) and raid (tier = floor) -------- */
+  spawnMazeGuard(spot, tier = 2) {
     const melee = Math.random() < 0.6;
     const bot = {
       id: nextId++, ws: null, bot: true,
@@ -584,16 +591,16 @@ class Room {
       strafeT: Math.random() * 10,
       botMelee: melee,
       botGuard: true, botAggro: 11, enraged: false,
-      botSpeed: melee ? 4.4 : 3.4,
-      botAimErr: 0.2,
-      botRof: melee ? 850 : 1050,
-      botDmg: melee ? 20 : BOT_DMG,
+      botSpeed: Math.min(6.5, (melee ? 4.0 : 3.1) + tier * 0.18),
+      botAimErr: Math.max(0.06, 0.24 - tier * 0.012),
+      botRof: Math.max(550, (melee ? 900 : 1150) - tier * 30),
+      botDmg: melee ? Math.min(32, 16 + tier * 2) : BOT_DMG,
     };
     this.players.set(bot.id, bot);
     this.broadcast({ t: 'joined', id: bot.id, name: bot.name });
     this.spawnPlayer(bot, spot);
     bot.weapon = melee ? 'chop' : 'pistol';
-    bot.hp = 90;
+    bot.hp = Math.min(190, 70 + tier * 10);
   }
 
   mazeFreeSpot(minSpawnDist) {
@@ -625,6 +632,60 @@ class Room {
       if (spot) this.spawnMazeGuard(spot);
     }
     this.announce('THE MAZE IS WATCHING — CLAIM THE TROPHY', 'The maze is watching');
+  }
+
+  /* -------- raid mode: 20 storeys, stairwell to stairwell -------- */
+  loadRaidFloor() {
+    const v = LEVEL.validateLevel(LEVEL.generateFloor({ floor: this.raidFloor }));
+    if (v.ok) this.levelData = v.clean;
+    this.levelName = (this.raidUp ? 'TOWER FL ' : 'SUBLEVEL ') + this.raidFloor;
+    this.mazePopulated = false;
+  }
+
+  manageRaid() {
+    if (this.gameOver || this.mazePopulated || this.humanCount() === 0) return;
+    this.mazePopulated = true;
+    const f = this.raidFloor;
+    const stairs = this.level.PICKUPS.find(p => p.kind === 'stairs');
+    let placed = 0;   // a couple of guards watch the stairwell
+    for (let i = 0; i < 30 && placed < Math.min(2, 1 + (f >> 3)); i++) {
+      const a = Math.random() * Math.PI * 2, r = 3 + Math.random() * 4;
+      const x = Math.round(stairs.x + Math.cos(a) * r), z = Math.round(stairs.z + Math.sin(a) * r);
+      if (!this.level.collides(x, z, 0.7)) { this.spawnMazeGuard([x, z], f); placed++; }
+    }
+    const lurkers = Math.min(9, 3 + Math.ceil(f / 2));
+    for (let i = 0; i < lurkers; i++) {
+      const spot = this.mazeFreeSpot(8);
+      if (spot) this.spawnMazeGuard(spot, f);
+    }
+    if (f === 1) this.announce(this.raidUp ? 'RAID START — REACH THE ROOF, 20 FLOORS UP' : 'RAID START — REACH THE VAULT, 20 LEVELS DOWN', 'Raid start');
+  }
+
+  advanceFloor(player) {
+    if (this.gameOver) return;
+    if (this.raidFloor >= RAID_FLOORS) return this.raidWin(player);
+    this.raidFloor++;
+    this.loadRaidFloor();
+    this.level = LEVEL.makeLevel(this.levelData);
+    this.secretsOpen = [];
+    this.pickups = this.level.PICKUPS.map((p, i) => ({ ...p, idx: i, active: true, respawnAt: 0 }));
+    this.mines = []; this.nades = [];
+    this.removeBots(false);
+    for (const p of this.players.values()) if (!p.bot) this.spawnPlayer(p);
+    this.broadcast({ t: 'reset', pickups: this.pickups.map(p => p.active), level: this.levelData, levelName: this.levelName });
+    this.announce(`${player.name} FOUND THE STAIRS — ${this.raidUp ? 'FLOOR' : 'SUBLEVEL'} ${this.raidFloor} OF ${RAID_FLOORS}`, `Floor ${this.raidFloor}`);
+  }
+
+  raidWin(player) {
+    if (this.gameOver) return;
+    this.gameOver = true;
+    const board = [...this.players.values()].filter(p => !p.bot)
+      .sort((a, b) => b.score - a.score)
+      .map(p => ({ name: p.name, score: p.score }));
+    const where = this.raidUp ? 'THE ROOF' : 'THE VAULT';
+    this.announce(`${player.name} REACHED ${where}`, `${player.name} reached ${where.toLowerCase()}`);
+    this.broadcast({ t: 'gameOver', winner: player.id, winnerName: player.name, board, resetIn: RESET_MS });
+    this.resetTimer = setTimeout(() => this.resetMatch(), RESET_MS);
   }
 
   trophyWin(player) {
@@ -754,6 +815,11 @@ class Room {
       if (v.ok) this.levelData = v.clean;
       this.mazePopulated = false;
     }
+    if (this.mode === 'raid') {
+      this.raidFloor = 1;
+      this.raidUp = Math.random() < 0.5;
+      this.loadRaidFloor();
+    }
     this.level = LEVEL.makeLevel(this.levelData);   // recloses secret walls
     this.secretsOpen = [];
     this.pickups = this.level.PICKUPS.map((p, i) => ({ ...p, idx: i, active: true, respawnAt: 0 }));
@@ -767,7 +833,7 @@ class Room {
     }
     this.broadcast({
       t: 'reset', pickups: this.pickups.map(p => p.active),
-      ...(this.mode === 'maze' ? { level: this.levelData, levelName: this.levelName } : {}),
+      ...(this.mode === 'maze' || this.mode === 'raid' ? { level: this.levelData, levelName: this.levelName } : {}),
     });
   }
 
@@ -786,6 +852,7 @@ class Room {
     this.broadcast({
       t: 'snap',
       ...(this.mode === 'horde' ? { wave: this.hordeWave } : {}),
+      ...(this.mode === 'raid' ? { floor: this.raidFloor } : {}),
       nades: this.nades.map(n => ({ id: n.id, x: +n.x.toFixed(2), y: +n.y.toFixed(2), z: +n.z.toFixed(2) })),
       players: [...this.players.values()].map(p => ({
         id: p.id, name: p.name, color: p.color,
@@ -890,6 +957,11 @@ wss.on('connection', (ws) => {
           p.active = false;
           room.broadcast({ t: 'pickup', idx: p.idx, active: false, by: me.id, kind: p.kind });
           room.trophyWin(me);
+          break;
+        }
+        if (p.kind === 'stairs') {
+          if (room.mode !== 'raid') break;
+          room.advanceFloor(me);
           break;
         }
         if (p.kind === 'rifle' || p.kind === 'shotgun' || p.kind === 'sniper' || p.kind === 'launcher') { me.weapon = p.kind; me.owned[p.kind] = true; }

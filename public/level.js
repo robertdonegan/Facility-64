@@ -47,7 +47,7 @@
     ],
   };
 
-  const PICKUP_KINDS = ['rifle', 'shotgun', 'sniper', 'launcher', 'armor', 'ammo', 'mines', 'health', 'trophy'];
+  const PICKUP_KINDS = ['rifle', 'shotgun', 'sniper', 'launcher', 'armor', 'ammo', 'mines', 'health', 'trophy', 'stairs'];
   const THEMES = ['facility', 'jungle', 'office', 'church', 'rooftop'];
   const LIMITS = { arenaMin: 16, arenaMax: 80, blocks: 300, spawns: 32, pickups: 32, nameLen: 16 };
 
@@ -332,7 +332,38 @@
     return { name: 'THE MAZE', theme, arena, blocks, spawns, pickups };
   }
 
-  const LEVEL = { DEFAULT_LEVEL_DATA, makeLevel, validateLevel, generateArena, generateMaze, LIMITS, THEMES };
+  /* One storey of RAID mode's tower: maze-tight corridors most floors, roomier
+     layouts every third, supplies kept, and a stairwell placed as far from the
+     spawns as sampling finds. */
+  function generateFloor(opts) {
+    opts = opts || {};
+    const floor = Math.max(1, Math.min(99, Math.round(opts.floor || 1)));
+    const rng = opts.rng || Math.random;
+    const theme = THEMES.includes(opts.theme) ? opts.theme : THEMES[Math.floor(rng() * THEMES.length)];
+    const base = floor % 3 === 0
+      ? generateArena({ arena: 24 + (floor % 5) * 2, theme, rng })
+      : generateMaze({ cells: 7 + (floor % 3), theme, rng });
+    const data = {
+      name: ('FLOOR ' + floor).slice(0, LIMITS.nameLen), theme, arena: base.arena,
+      blocks: base.blocks,
+      spawns: base.spawns.slice(0, 8),
+      pickups: base.pickups.filter(p => p.kind !== 'trophy').slice(0, 12),
+    };
+    const inst = makeLevel(data);
+    let best = null, bestD = -1;
+    for (let i = 0; i < 80; i++) {
+      const x = Math.round((rng() * 2 - 1) * (data.arena - 2));
+      const z = Math.round((rng() * 2 - 1) * (data.arena - 2));
+      if (inst.collides(x, z, 0.8)) continue;
+      let d = Infinity;
+      for (const s of data.spawns) d = Math.min(d, Math.hypot(s[0] - x, s[1] - z));
+      if (d > bestD) { bestD = d; best = [x, z]; }
+    }
+    data.pickups.push({ kind: 'stairs', x: best ? best[0] : 0, z: best ? best[1] : 0 });
+    return data;
+  }
+
+  const LEVEL = { DEFAULT_LEVEL_DATA, makeLevel, validateLevel, generateArena, generateMaze, generateFloor, LIMITS, THEMES };
   if (typeof module !== 'undefined' && module.exports) module.exports = LEVEL;
   else root.LEVEL = LEVEL;
 })(typeof self !== 'undefined' ? self : this);

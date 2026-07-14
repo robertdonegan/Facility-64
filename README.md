@@ -12,7 +12,7 @@ npm start
 # → http://localhost:8080
 ```
 
-Open the URL, pick a codename, choose a map and music track, and enter the arena. Open a second browser window to see multiplayer working immediately. Works on desktop (mouse + keyboard), gamepads (PS5 / Xbox), and mobile (landscape, touch controls).
+Open the URL, pick a codename and avatar (agent, commando, scientist, or spy), choose a mode, map, and music track, and enter the arena. Open a second browser window to see multiplayer working immediately. Works on desktop (mouse + keyboard), gamepads (PS5 / Xbox), and mobile (landscape, touch controls).
 
 ## Playing with friends
 
@@ -24,8 +24,8 @@ Open the URL, pick a codename, choose a map and music track, and enter the arena
 
 | Input | Bindings |
 |---|---|
-| **Keyboard + mouse** | WASD move · mouse aim · click fire · right-click scope · **R** reload · **1–5** / scroll switch weapon · **Shift** sprint · **Tab** scoreboard · **M** mute music · **Esc** pause |
-| **PS5 / Xbox pad** | Sticks move + look · **RT** fire · **LT** scope · **LB/RB** switch weapon · **X/Square** reload · **L3** sprint · **Select/Share** scoreboard · **Start/Options** pause |
+| **Keyboard + mouse** | WASD move · mouse aim · click fire · right-click scope · **R** reload · **E** use (secret walls) · **1–7** / scroll switch weapon · **Shift** sprint · **Tab** scoreboard · **M** mute music · **Esc** pause |
+| **PS5 / Xbox pad** | Sticks move + look · **RT** fire · **LT** scope · **LB/RB** switch weapon · **X/Square** reload · **Y/Triangle** use · **L3** sprint · **Select/Share** scoreboard · **Start/Options** pause |
 | **Mobile (landscape)** | Left thumb: floating stick to move · right thumb: drag to look · FIRE / RLD / SWAP / SCOPE buttons · GYRO toggles tilt aim (asks device permission) |
 
 Desktop aim needs pointer lock, which browsers only grant on a click — if you see **CLICK TO TAKE CONTROL**, click the game view once. Controllers use the W3C standard mapping, so DualSense and Xbox pads work identically, plugged in or Bluetooth.
@@ -49,7 +49,11 @@ Weapons are pickups; you keep everything you've grabbed until you die and switch
 Pick a **MODE** when creating a room:
 
 - **DEATHMATCH** (default): free-for-all, first to 10 eliminations. Alone in a deathmatch room? After a 10-second grace the announcer calls **TRAINING SIM ACTIVE** and hostile bots arrive at mid-distance spawns — each kill raises the wave (faster, tougher, more accurate, up to four at once) and they withdraw the moment a second human joins.
-- **HORDE — CO-OP VS BOTS**: everyone teams up against zombie-style waves. Wave *n* sends 3+2*n* hostiles — early waves are relentless melee chasers, wave 3+ mixes in gunners — and each wave they get faster, tougher, and hit harder. Friendly fire is off, downed agents respawn while a teammate still stands, and the match ends only when the whole squad is dead at once (**THE HORDE — WAVE N** takes the round, then it resets). The HUD shows the current wave; kills count on the scoreboard.
+- **HORDE — CO-OP VS BOTS**: everyone teams up against zombie-style waves. Wave *n* sends 3+2*n* hostiles — early waves are relentless melee chasers, wave 3+ mixes in gunners — and each wave they get faster, tougher, and hit harder. Friendly fire is off, downed agents respawn while a teammate still stands, and the match ends only when the whole squad is dead at once (**THE HORDE — WAVE N** takes the round, then it resets). Waves survived accumulate per room, so every fresh run starts meaner. The HUD shows the current wave.
+- **MAZE — RACE TO THE TROPHY**: a dense server-generated labyrinth with a golden trophy under a light beam at the centre. LURKERs and WARDENs hold their posts until you get close — then they hunt you forever. First to grab the trophy wins; every round is a brand-new maze with secret pushwall shortcuts and supply caches.
+- **RAID — 20-STOREY TOWER**: fight stairwell to stairwell through twenty generated floors of tight corridors (roomier layouts every third floor). Guards get faster, tougher, and more accurate the deeper you go; whoever finds the final stairwell reaches the roof (or the vault — half the towers descend) and takes the round. Kills accumulate across floors.
+
+**Secret pushwalls** (all modes): some walls are Wolfenstein-style secrets — indistinguishable until you face them and press **USE** (E / pad Y / mobile USE), then they rumble and sink into the floor. Generated layouts hide them ~1 wall in 12; the level editor has a SECRET WALL tool.
 
 ## Terrain themes
 
