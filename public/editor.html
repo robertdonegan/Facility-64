@@ -40,6 +40,8 @@
     <option value="church">CHURCH</option>
     <option value="rooftop">ROOFTOP</option>
   </select>
+  <label>ELEV <input type="number" id="elev" min="0" max="10" step="0.5" value="0"></label>
+  <label>HT <input type="number" id="blockHt" min="0.5" max="10" step="0.5" value="5"></label>
   <div class="divider"></div>
   <select id="serverLevels"><option>LOADING…</option></select>
   <button id="loadBtn">LOAD</button>
@@ -55,6 +57,11 @@
 <div id="toolbar">
   <button data-tool="wall" class="active">■ WALL (DRAG)</button>
   <button data-tool="secretwall">▨ SECRET WALL</button>
+  <button data-tool="platform">▤ PLATFORM</button>
+  <button data-tool="ramp0">◹ RAMP ↑N</button>
+  <button data-tool="ramp1">◹ RAMP ↑E</button>
+  <button data-tool="ramp2">◹ RAMP ↑S</button>
+  <button data-tool="ramp3">◹ RAMP ↑W</button>
   <button data-tool="crate">▩ CRATE</button>
   <button data-tool="spawn">◎ SPAWN</button>
   <button data-tool="rifle">▬ RIFLE</button>
@@ -71,7 +78,7 @@
 <div id="wrap"><canvas id="ed"></canvas></div>
 <div id="status">Draw walls by dragging. A level needs at least 2 spawn points.</div>
 <div id="help">
-  WALL / SECRET WALL: click-drag a rectangle (secret walls open in-game with the USE key, Wolfenstein style) · CRATE / SPAWN / PICKUPS: click to place · ERASE: click an item ·
+  WALL / SECRET WALL / PLATFORM / RAMP: click-drag a rectangle · PLATFORM floats at ELEV (walk under it) · RAMP rises ELEV→ELEV+HT toward its arrow · ELEV/HT set a block base height and height · CRATE / SPAWN / PICKUPS: click to place · ERASE: click an item ·
   grid snaps to 1 unit, walls are 5 high, crates 2.2<br>
   GENERATE ARENA carves a random connected room layout (with cover, spawns, and pickups) sized to the ARENA field — hit it again for a different layout.<br>
   SAVE TO SERVER makes the map instantly selectable in the game menu — then pick it when creating a room.
@@ -134,9 +141,10 @@ function draw(){
   ctx.strokeStyle = '#4d5a4a'; ctx.lineWidth = 4;
   ctx.strokeRect(2, 2, cv.width - 4, cv.height - 4);
   // blocks
-  for(const [cx, cz, sx, sz, , kind] of blocks){
-    ctx.fillStyle = kind === 'crate' ? '#7a6134' : pal.wall;
-    ctx.strokeStyle = kind === 'crate' ? '#4f3d1d' : pal.wallLine;
+  for(const [cx, cz, sx, sz, sy, kind, by, dir] of blocks){
+    const elev = by || 0;
+    ctx.fillStyle = kind === 'crate' ? '#7a6134' : kind === 'ramp' ? '#5a6b7a' : elev > 0 ? '#7a8a9a' : pal.wall;
+    ctx.strokeStyle = kind === 'crate' ? '#4f3d1d' : kind === 'ramp' ? '#3a4a58' : pal.wallLine;
     ctx.lineWidth = 2;
     const x = W2C(cx - sx/2), y = W2C(cz - sz/2);
     ctx.fillRect(x, y, sx*SCALE, sz*SCALE);
@@ -146,6 +154,23 @@ function draw(){
       ctx.strokeStyle = '#c9c27f'; ctx.setLineDash([4,3]); ctx.lineWidth = 2;
       ctx.strokeRect(x+2, y+2, sx*SCALE-4, sz*SCALE-4);
       ctx.restore();
+    }
+    if(kind === 'ramp'){   // arrow toward the high end
+      ctx.save();
+      ctx.strokeStyle = '#e8e3c0'; ctx.lineWidth = 2;
+      const mx = W2C(cx), my = W2C(cz), aL = Math.min(sx,sz)*SCALE*0.35;
+      const av = [[0,-1],[1,0],[0,1],[-1,0]][dir||0];
+      ctx.beginPath(); ctx.moveTo(mx-av[0]*aL, my-av[1]*aL); ctx.lineTo(mx+av[0]*aL, my+av[1]*aL); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(mx+av[0]*aL, my+av[1]*aL);
+      ctx.lineTo(mx+av[0]*aL-av[1]*4-av[0]*5, my+av[1]*aL+av[0]*4-av[1]*5);
+      ctx.moveTo(mx+av[0]*aL, my+av[1]*aL);
+      ctx.lineTo(mx+av[0]*aL+av[1]*4-av[0]*5, my+av[1]*aL-av[0]*4-av[1]*5);
+      ctx.stroke(); ctx.restore();
+    }
+    if(elev > 0 && kind !== 'ramp'){   // elevation label
+      ctx.fillStyle = '#0e150d'; ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('↑'+elev, W2C(cx), W2C(cz));
     }
   }
   // wall being dragged
@@ -187,7 +212,7 @@ function evPos(e){
 
 cv.addEventListener('mousedown', e => {
   const [x, z] = evPos(e);
-  if(tool === 'wall' || tool === 'secretwall'){ drag = { x0:x, z0:z, x1:x, z1:z }; }
+  if(tool === 'wall' || tool === 'secretwall' || tool === 'platform' || tool.startsWith('ramp')){ drag = { x0:x, z0:z, x1:x, z1:z }; }
   else if(tool === 'crate'){ blocks.push([x, z, 2.2, 2.2, 2.2, 'crate']); }
   else if(tool === 'spawn'){ spawns.push([clampIn(x), clampIn(z)]); }
   else if(['rifle','shotgun','sniper','launcher','armor','ammo','mines','health'].includes(tool)){ pickups.push({ kind: tool, x: clampIn(x), z: clampIn(z) }); }
@@ -203,7 +228,18 @@ cv.addEventListener('mousemove', e => {
 addEventListener('mouseup', () => {
   if(!drag) return;
   const { x, z, sx, sz } = dragRect();
-  if(sx >= 1 && sz >= 1) blocks.push([x, z, sx, sz, 5, tool === 'secretwall' ? 'secret' : 'wall']);
+  if(sx >= 1 && sz >= 1){
+    const elev = Math.max(0, Math.min(10, +document.getElementById('elev').value || 0));
+    const ht = Math.max(0.5, Math.min(10, +document.getElementById('blockHt').value || 5));
+    if(tool.startsWith('ramp')){
+      const dir = +tool.slice(4);
+      blocks.push([x, z, sx, sz, ht, 'ramp', elev, dir]);   // rises elev → elev+ht toward dir
+    } else if(tool === 'platform'){
+      blocks.push([x, z, sx, sz, Math.min(ht, 0.6), 'wall', elev || 3, 0]);   // thin floating floor
+    } else {
+      blocks.push([x, z, sx, sz, ht, tool === 'secretwall' ? 'secret' : 'wall', elev, 0]);
+    }
+  }
   drag = null;
   draw();
 });
