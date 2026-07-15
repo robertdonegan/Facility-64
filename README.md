@@ -24,8 +24,8 @@ Open the URL, pick a codename and avatar (agent, commando, scientist, or spy), c
 
 | Input | Bindings |
 |---|---|
-| **Keyboard + mouse** | WASD move · mouse aim · click fire · right-click scope · **R** reload · **E** use (secret walls) · **1–7** / scroll switch weapon · **Shift** sprint · **Tab** scoreboard · **M** mute music · **Esc** pause |
-| **PS5 / Xbox pad** | Sticks move + look · **RT** fire · **LT** scope · **LB/RB** switch weapon · **X/Square** reload · **Y/Triangle** use · **L3** sprint · **Select/Share** scoreboard · **Start/Options** pause |
+| **Keyboard + mouse** | WASD move · mouse aim · click fire · **Space** jump · right-click scope · **R** reload · **E** use (secret walls) · **1–7** / scroll switch weapon · **Shift** sprint · **Tab** scoreboard · **M** mute music · **Esc** pause |
+| **PS5 / Xbox pad** | Sticks move + look · **RT** fire · **A/Cross** jump · **LT** scope · **LB/RB** switch weapon · **X/Square** reload · **Y/Triangle** use · **L3** sprint · **Select/Share** scoreboard · **Start/Options** pause |
 | **Mobile (landscape)** | Left thumb: floating stick to move · right thumb: drag to look · FIRE / RLD / SWAP / SCOPE buttons · GYRO toggles tilt aim (asks device permission) |
 
 Desktop aim needs pointer lock, which browsers only grant on a click — if you see **CLICK TO TAKE CONTROL**, click the game view once. Controllers use the W3C standard mapping, so DualSense and Xbox pads work identically, plugged in or Bluetooth.
@@ -57,7 +57,11 @@ Pick a **MODE** when creating a room:
 
 ## Terrain themes
 
-Levels declare one of five themes, which drive textures, lighting, fog, and cosmetic props: **facility** (concrete, hazard stripes, pipe runs, barrels), **jungle** (mossy ruins, vines, perimeter trees, ferns), **office** (drywall, carpet tiles, ceiling panels, potted plants, filing cabinets), **church** (ashlar stone, stained glass, candle stands, chandeliers), **rooftop** (weathered brick, open sky, a lit city skyline ringing the arena, AC units). Props are seeded deterministically from the level name so every client sees the same set.
+Levels declare one of five themes, which drive textures, lighting, fog, and cosmetic props: **facility** (concrete, hazard stripes, pipe runs, barrels), **jungle** (mossy ruins, vines, perimeter trees, ferns, corner **treehouses** you climb by ramp for the best loot), **office** (drywall, carpet tiles, ceiling panels, potted plants, filing cabinets), **church** (ashlar stone, stained glass, candle stands, chandeliers), **rooftop** (weathered brick, open sky, a lit city skyline ringing the arena, AC units). Props are seeded deterministically from the level name so every client sees the same set.
+
+## Verticality (true 3D)
+
+The arena has real height. Levels can carry **elevated platforms** (float over them and duck beneath them) and **ramps** that climb between levels; players fall under gravity, **jump** (Space / A / mobile JUMP), step up ledges, and take the high ground. Hit detection is fully 3D and server-authoritative — a flat shot sails under a raised catwalk, you must aim up to tag someone on a platform, and standing on a slab shields you from fire directly below. Grenades and mines reckon height too. Build your own vertical maps with the editor's PLATFORM and RAMP tools.
 
 ## Ready-made maps
 
@@ -67,7 +71,7 @@ Five maps ship in the MAP dropdown: **FACILITY** (built-in), plus **JUNGLE TEMPL
 
 All four are linked from the main menu and need no build step:
 
-- **Level editor (`/editor.html`):** top-down grid — drag walls, click to place crates, spawns, and every pickup type; pick a theme; or hit **GENERATE ARENA** for a procedural layout (randomized spanning tree, so every room is always reachable, with door gaps, cover, spawns, and pickups). **SAVE TO SERVER** validates and writes to `levels/`, instantly selectable in the game menu.
+- **Level editor (`/editor.html`):** top-down grid — drag walls (or **PLATFORM** / **RAMP** with the ELEV & HT fields for multi-level maps, or **SECRET WALL** for pushwalls), click to place crates, spawns, and every pickup type; pick a theme; or hit **GENERATE ARENA** for a procedural layout (randomized spanning tree, so every room is always reachable, with door gaps, cover, spawns, and pickups). **SAVE TO SERVER** validates and writes to `levels/`, instantly selectable in the game menu.
 - **Music editor (`/music.html`):** a step sequencer (8/16/32 steps, 60–220 BPM) with lead and bass pitch grids plus kick/snare/hat rows. Preview in-browser, then **SAVE TO SERVER** — the track appears in the MUSIC dropdown and plays as the room's soundtrack via a Web Audio lookahead scheduler.
 - **Weapon workshop (`/weapons.html`):** every gun (first-person view *and* the model other players hold) is a stack of primitive parts — box/cylinder/sphere/cone with size, position, rotation, colour, glow/flash flags. Edit them against a live orbitable 3D preview, save, and the game uses your designs. Export/import JSON to share.
 - **Texture studio (`/textures.html`):** paint the walls and floors of all five themes, the crate faces, and the rooftop skyline windows as 128px pixel art — brush, flood fill, colour picker, undo, and a tiled preview for checking seams. Export/import PNG.
