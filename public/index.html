@@ -86,6 +86,7 @@
   #btnSwap   { right:150px; bottom:110px; width:56px; height:56px; font-size:13px; }
   #btnScope  { right:36px; bottom:176px; width:56px; height:56px; font-size:12px; }
   #btnUse    { right:110px; bottom:176px; width:56px; height:56px; font-size:12px; }
+  #btnJump   { right:176px; bottom:120px; width:56px; height:56px; font-size:12px; }
   #btnGyro   { right:16px; top:52px; width:56px; height:56px; font-size:12px; }
   #btnPause  { left:50%; top:8px; transform:translateX(-50%); width:46px; height:46px; font-size:15px; border-radius:8px; }
   #rotateNotice { position:fixed; inset:0; z-index:30; display:none; align-items:center; justify-content:center; background:#050806; color:#c9c27f; font-size:24px; letter-spacing:5px; text-align:center; }
@@ -135,6 +136,7 @@
   <button class="tbtn" id="btnSwap">SWAP</button>
   <button class="tbtn" id="btnScope">SCOPE</button>
   <button class="tbtn" id="btnUse">USE</button>
+  <button class="tbtn" id="btnJump">JUMP</button>
   <button class="tbtn" id="btnGyro">GYRO</button>
   <button class="tbtn" id="btnPause">| |</button>
 </div>
@@ -170,8 +172,8 @@
   <div id="connStatus"></div>
   <div id="liveStatus"></div>
   <div class="menu-note">
-    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-7 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">RIGHT-CLICK</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">TAB</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">M</span> MUTE MUSIC &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
-    PS5 / XBOX CONTROLLER: <span class="keys">STICKS</span> MOVE + LOOK &nbsp;&middot;&nbsp; <span class="keys">RT</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">LT</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">LB/RB</span> SWITCH &nbsp;&middot;&nbsp; <span class="keys">X</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">L3</span> RUN &nbsp;&middot;&nbsp; <span class="keys">SELECT</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">START</span> PAUSE<br>
+    <span class="keys">WASD</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">MOUSE</span> AIM &nbsp;&middot;&nbsp; <span class="keys">CLICK</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">SPACE</span> JUMP &nbsp;&middot;&nbsp; <span class="keys">E</span> USE &nbsp;&middot;&nbsp; <span class="keys">R</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">SHIFT</span> RUN &nbsp;&middot;&nbsp; <span class="keys">1-7 / SCROLL</span> SWITCH WEAPON &nbsp;&middot;&nbsp; <span class="keys">RIGHT-CLICK</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">TAB</span> SCORES &nbsp;&middot;&nbsp; <span class="keys">M</span> MUTE MUSIC &nbsp;&middot;&nbsp; <span class="keys">ESC</span> PAUSE<br>
+    PS5 / XBOX CONTROLLER: <span class="keys">STICKS</span> MOVE + LOOK &nbsp;&middot;&nbsp; <span class="keys">RT</span> FIRE &nbsp;&middot;&nbsp; <span class="keys">A/CROSS</span> JUMP &nbsp;&middot;&nbsp; <span class="keys">Y</span> USE &nbsp;&middot;&nbsp; <span class="keys">LT</span> SCOPE &nbsp;&middot;&nbsp; <span class="keys">LB/RB</span> SWITCH &nbsp;&middot;&nbsp; <span class="keys">X</span> RELOAD &nbsp;&middot;&nbsp; <span class="keys">L3</span> RUN &nbsp;&middot;&nbsp; <span class="keys">START</span> PAUSE<br>
     MOBILE (LANDSCAPE): <span class="keys">LEFT THUMB</span> MOVE &nbsp;&middot;&nbsp; <span class="keys">RIGHT THUMB</span> LOOK &nbsp;&middot;&nbsp; <span class="keys">FIRE / RLD / SWAP / SCOPE</span> BUTTONS &nbsp;&middot;&nbsp; <span class="keys">GYRO</span> TILT AIM<br><br>
     THE FIRST PLAYER INTO A ROOM PICKS ITS MAP AND MUSIC — EVERYONE JOINING PLAYS THAT. FIRST TO 10 ELIMINATIONS WINS THE ROUND.
   </div>
@@ -297,6 +299,7 @@ for(const key in THEMES) THEMES[key].floor.repeat.set(20,20);
 
 /* ---- dynamic level: rebuilt from whatever level data the server sends ---- */
 let LEVELINST = LEVEL.makeLevel(LEVEL.DEFAULT_LEVEL_DATA);
+let ceilY = 5;   // render/impact ceiling height, raised per level to clear tall structures
 let levelGroup = null;
 let PICKUPS = [];
 let pickupMeshes = [];
@@ -421,7 +424,7 @@ function spawnImpactFX(x, y, z, color){
 function rayHitLevel(ox, oy, oz, dx, dy, dz, tMax){
   let best = Infinity;
   for(const c of LEVELINST.COLLIDERS){
-    if(c.open) continue;
+    if(c.open || c.kind === 'ramp') continue;
     let t0 = 0, t1 = tMax, ok = true;
     const p = [-dx, dx, -dz, dz];
     const q = [ox - c.minX, c.maxX - ox, oz - c.minZ, c.maxZ - oz];
@@ -435,11 +438,11 @@ function rayHitLevel(ox, oy, oz, dx, dy, dz, tMax){
     }
     if(!ok || t0 <= 0 || t0 >= best) continue;
     const y = oy + dy * t0;
-    if(y >= 0 && y <= c.h) best = t0;
+    if(y >= c.y0 && y <= c.y1) best = t0;   // only the block's actual vertical span
   }
   if(dy < -1e-9){ const t = -oy / dy; if(t > 0 && t < best && t <= tMax) best = t; }
-  else if(dy > 1e-9 && (THEMES[LEVELINST.theme] || THEMES.facility).hasCeiling){
-    const t = (5 - oy) / dy; if(t > 0 && t < best && t <= tMax) best = t;
+  else if(dy > 1e-9 && isFinite(ceilY)){
+    const t = (ceilY - oy) / dy; if(t > 0 && t < best && t <= tMax) best = t;
   }
   return best === Infinity ? null : best;
 }
@@ -447,7 +450,7 @@ function rayHitRemote(ox, oy, oz, dx, dy, dz, tMax){
   let best = Infinity;
   for(const r of remotes.values()){
     if(!r.alive) continue;
-    const tox = r.x - ox, toy = 1.3 - oy, toz = r.z - oz;
+    const tox = r.x - ox, toy = (r.y + 1.3) - oy, toz = r.z - oz;
     const proj = tox*dx + toy*dy + toz*dz;
     if(proj < 0.5 || proj > tMax) continue;
     const cx = dx*proj - tox, cy = dy*proj - toy, cz = dz*proj - toz;
@@ -456,9 +459,9 @@ function rayHitRemote(ox, oy, oz, dx, dy, dz, tMax){
   return best === Infinity ? null : best;
 }
 
-function spawnBlastFX(x, z){
+function spawnBlastFX(x, z, y){
   const flash = new THREE.Mesh(new THREE.SphereGeometry(0.4,8,8), new THREE.MeshBasicMaterial({ color:0xffb84a, transparent:true, opacity:0.9 }));
-  flash.position.set(x, .6, z);
+  flash.position.set(x, (y||0) + .6, z);
   scene.add(flash);
   const start = performance.now();
   (function anim(){
@@ -759,20 +762,40 @@ function buildLevel(data){
   TH.floor.repeat.set(Math.max(6, Math.round(A/2.2)), Math.max(6, Math.round(A/2.2)));
   const floorMesh = new THREE.Mesh(new THREE.PlaneGeometry(A*2, A*2), new THREE.MeshLambertMaterial({ map:TH.floor }));
   floorMesh.rotation.x = -Math.PI/2; levelGroup.add(floorMesh);
+  // ceiling clears the tallest structure so platforms/treehouses have headroom
+  let maxTop = 5;
+  for(const c of LEVELINST.COLLIDERS) if(c.y1 > maxTop) maxTop = c.y1;
+  ceilY = TH.hasCeiling ? Math.max(5, maxTop + 2) : Infinity;
   if(TH.hasCeiling){
     const ceil = new THREE.Mesh(new THREE.PlaneGeometry(A*2, A*2), new THREE.MeshLambertMaterial({ color:TH.ceiling }));
-    ceil.rotation.x = Math.PI/2; ceil.position.y = 5; levelGroup.add(ceil);
+    ceil.rotation.x = Math.PI/2; ceil.position.y = ceilY; levelGroup.add(ceil);
   }
 
-  blockMeshes = LEVELINST.BLOCKS.map(([cx, cz, sx, sz, sy, kind]) => {
+  blockMeshes = LEVELINST.BLOCKS.map(([cx, cz, sx, sz, sy, kind, by, dir]) => {
+    by = by || 0;
     // secret walls render exactly like walls — that's the point
     const tex = kind === 'crate' ? crateTex : TH.wall;
     const mat = new THREE.MeshLambertMaterial({ map: tex.clone() });
     mat.map.needsUpdate = true;
-    if(kind !== 'crate') mat.map.repeat.set(Math.max(1,Math.round(sx/3)), Math.max(1,Math.round(sy/3)));
-    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
-    m.position.set(cx, sy/2, cz);
-    m.userData.baseY = sy/2;
+    if(kind !== 'crate') mat.map.repeat.set(Math.max(1,Math.round(sx/3)), Math.max(1,Math.round(Math.max(sy,1)/3)));
+    let m;
+    if(kind === 'ramp'){
+      // a tilted slab spanning the run, rising by→by+sy along dir
+      const run = (dir === 1 || dir === 3) ? sx : sz;
+      const rise = sy, len = Math.hypot(run, rise);
+      m = new THREE.Mesh(new THREE.BoxGeometry(dir===1||dir===3?len:sx, 0.25, dir===1||dir===3?sz:len), mat);
+      const ang = Math.atan2(rise, run);
+      // dir: 0=-z 1=+x 2=+z 3=-x  (surface climbs toward that side)
+      if(dir === 0) m.rotation.x = -ang;
+      else if(dir === 2) m.rotation.x = ang;
+      else if(dir === 1) m.rotation.z = ang;
+      else m.rotation.z = -ang;
+      m.position.set(cx, by + rise/2, cz);
+    } else {
+      m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+      m.position.set(cx, by + sy/2, cz);
+    }
+    m.userData.baseY = m.position.y;
     levelGroup.add(m);
     return m;
   });
@@ -788,7 +811,9 @@ function buildLevel(data){
   PICKUPS = LEVELINST.PICKUPS;
   pickupMeshes = PICKUPS.map(p => {
     const mesh = makePickupMesh(p.kind);
-    mesh.position.set(p.x, 1, p.z);
+    const surf = LEVELINST.topAt(p.x, p.z);   // rest on whatever surface is under it
+    mesh.position.set(p.x, surf + 1, p.z);
+    mesh.userData.baseY = surf + 1;
     mesh.userData.spin = Math.random()*6;
     levelGroup.add(mesh);
     return mesh;
@@ -849,12 +874,14 @@ function freshOwned(){
 
 /* ================= LOCAL PLAYER ================= */
 const me = {
-  id:null, name:'AGENT', x:0, z:0, yaw:0, pitch:0, hp:100, armor:0, score:0, alive:false,
+  id:null, name:'AGENT', x:0, z:0, y:0, vy:0, onGround:true, yaw:0, pitch:0, hp:100, armor:0, score:0, alive:false,
   weapon:'pistol',
   owned: freshOwned(),
   ammo: freshAmmo(),
   lastShot:0, reloading:false, bob:0,
 };
+const GRAVITY = 22, JUMP_V = 7.2, EYE_H = 1.6;
+let jumpHeld = false;
 let winScore = 10;
 
 /* ================= REMOTE PLAYERS ================= */
@@ -964,7 +991,7 @@ function ensureRemote(p){
     const mesh = makeAgentMesh(p.color, p.cls, p.av);
     mesh.add(makeNameSprite(p.name));
     scene.add(mesh);
-    r = { id:p.id, name:p.name, cls:p.cls, mesh, x:p.x, z:p.z, yaw:p.yaw, tx:p.x, tz:p.z, tyaw:p.yaw, alive:p.alive, mv:0, walkT:Math.random()*10, weapon:'pistol' };
+    r = { id:p.id, name:p.name, cls:p.cls, mesh, x:p.x, z:p.z, y:p.y||0, yaw:p.yaw, tx:p.x, tz:p.z, ty:p.y||0, tyaw:p.yaw, alive:p.alive, mv:0, walkT:Math.random()*10, weapon:'pistol' };
     remotes.set(p.id, r);
   }
   return r;
@@ -1064,7 +1091,7 @@ function handleMsg(m){
         }
         seen.add(p.id);
         const r = ensureRemote(p);
-        r.tx = p.x; r.tz = p.z; r.tyaw = p.yaw;
+        r.tx = p.x; r.tz = p.z; r.ty = p.y||0; r.tyaw = p.yaw;
         r.alive = p.alive; r.mv = p.mv;
         r.score = p.score;
         r.mesh.visible = p.alive;
@@ -1079,7 +1106,7 @@ function handleMsg(m){
     }
     case 'respawn':
       if(m.id === me.id){
-        me.x = m.x; me.z = m.z; me.yaw = m.yaw; me.pitch = 0;
+        me.x = m.x; me.z = m.z; me.y = m.y||0; me.vy = 0; me.onGround = true; me.yaw = m.yaw; me.pitch = 0;
         me.hp = 100; me.armor = 0; me.alive = true;
         me.weapon = 'pistol';
         me.owned = freshOwned();
@@ -1091,7 +1118,7 @@ function handleMsg(m){
         updateHUD();
       } else {
         const r = remotes.get(m.id);
-        if(r){ r.x = r.tx = m.x; r.z = r.tz = m.z; r.alive = true; r.mesh.visible = true; }
+        if(r){ r.x = r.tx = m.x; r.z = r.tz = m.z; r.y = r.ty = m.y||0; r.alive = true; r.mesh.visible = true; }
       }
       break;
     case 'shot': {
@@ -1120,7 +1147,7 @@ function handleMsg(m){
       // everyone sees a red puff on the victim
       if(m.id !== me.id){
         const r = remotes.get(m.id);
-        if(r) spawnImpactFX(r.x, 1.3, r.z, 0xb02020);
+        if(r) spawnImpactFX(r.x, r.y + 1.3, r.z, 0xb02020);
       }
       break;
     case 'death':
@@ -1163,7 +1190,7 @@ function handleMsg(m){
       break;
     case 'mineArm': {
       const mesh = makeMineMesh();
-      mesh.position.set(m.x, .1, m.z);
+      mesh.position.set(m.x, (m.y||0) + .1, m.z);
       scene.add(mesh);
       mineMeshes.set(m.id, mesh);
       break;
@@ -1171,14 +1198,14 @@ function handleMsg(m){
     case 'mineBlast': {
       const mesh = mineMeshes.get(m.id);
       if(mesh){ scene.remove(mesh); mineMeshes.delete(m.id); }
-      spawnBlastFX(m.x, m.z);
+      spawnBlastFX(m.x, m.z, m.y||0);
       shotSound(0.35, 0.25, 140);
       break;
     }
     case 'nadeBlast': {
       const mesh = nadeMeshes.get(m.id);
       if(mesh){ scene.remove(mesh); nadeMeshes.delete(m.id); }
-      spawnBlastFX(m.x, m.z);
+      spawnBlastFX(m.x, m.z, m.y||0);
       shotSound(0.4, 0.3, 120);
       break;
     }
@@ -1459,6 +1486,7 @@ if(isTouch){
   bindBtn('btnSwap', () => cycleWeapon(1));
   bindBtn('btnScope', el => { setZoom(!zoomed); el.classList.toggle('on', zoomed); });
   bindBtn('btnUse', () => tryUse());
+  bindBtn('btnJump', () => { if(me.onGround && me.alive){ me.vy = JUMP_V; me.onGround = false; } });
   bindBtn('btnPause', () => {
     paused = !paused;
     document.getElementById('pauseMenu').style.display = paused ? 'flex' : 'none';
@@ -1596,7 +1624,7 @@ function fire(){
   // cosmetic impact: where would this ray strike (level surface or a player)?
   const shotImpactFX = (d, tMax) => {
     const [dx, dy, dz] = d;
-    const ox = me.x, oy = 1.6, oz = me.z;
+    const ox = me.x, oy = me.y + EYE_H, oz = me.z;
     const tW = rayHitLevel(ox, oy, oz, dx, dy, dz, tMax);
     const tP = rayHitRemote(ox, oy, oz, dx, dy, dz, tMax);
     if(tP !== null && (tW === null || tP < tW)){
@@ -1651,7 +1679,7 @@ function tryPickup(){
   for(let i=0;i<PICKUPS.length;i++){
     if(!pickupActive[i]) continue;
     const p = PICKUPS[i];
-    if((me.x-p.x)**2 + (me.z-p.z)**2 < 1.7){
+    if((me.x-p.x)**2 + (me.z-p.z)**2 < 1.7 && Math.abs((pickupMeshes[i].userData.baseY - 1) - me.y) < 1.8){
       if(p.kind === 'armor' && me.armor >= 100) continue;
       if(p.kind === 'health' && me.hp >= 100) continue;
       send({ t:'pickup', idx:i });
@@ -1783,11 +1811,32 @@ function loop(){
         const sin = Math.sin(me.yaw), cos = Math.cos(me.yaw);
         const dx = (ix*cos + iz*sin) * SPEED * speedScale * dt;
         const dz = (-ix*sin + iz*cos) * SPEED * speedScale * dt;
-        if(!collides(me.x+dx, me.z, .55)) me.x += dx;
-        if(!collides(me.x, me.z+dz, .55)) me.z += dz;
+        // collide against blocks that intersect the body at the current feet height
+        if(!LEVELINST.collides3D(me.x+dx, me.z, .55, me.y)) me.x += dx;
+        if(!LEVELINST.collides3D(me.x, me.z+dz, .55, me.y)) me.z += dz;
         me.bob += dt * (SPEED>6 ? 13 : 9);
         moving = true;
       }
+      // vertical: gravity, step-up onto ramps/low ledges, fall off edges, jump
+      const support = LEVELINST.groundAt(me.x, me.z, me.y);
+      if(me.onGround){
+        if((keys['Space'] || (pad && gpPressed(pad, 0))) && !jumpHeld){
+          me.vy = JUMP_V; me.onGround = false; jumpHeld = true;
+        } else {
+          me.y = support;                      // stick to the surface (ramps, steps)
+          me.vy = 0;
+        }
+      }
+      if(!me.onGround){
+        me.vy -= GRAVITY * dt;
+        me.y += me.vy * dt;
+        if(me.vy <= 0 && me.y <= support){     // landed
+          me.y = support; me.vy = 0; me.onGround = true;
+        }
+      } else if(me.y > support + 0.05){        // walked off a ledge
+        me.onGround = false; me.vy = 0;
+      }
+      if(!(keys['Space'] || (pad && gpPressed(pad, 0)))) jumpHeld = false;
       if(pad){
         const lookX = gpAxis(pad.axes[2]), lookY = gpAxis(pad.axes[3]);
         if(lookX || lookY){
@@ -1817,7 +1866,7 @@ function loop(){
     // net send 20 Hz
     if(connected && now - lastNetSend > 50){
       lastNetSend = now;
-      send({ t:'state', x:+me.x.toFixed(2), z:+me.z.toFixed(2), yaw:+me.yaw.toFixed(3), mv: moving?1:0 });
+      send({ t:'state', x:+me.x.toFixed(2), z:+me.z.toFixed(2), y:+me.y.toFixed(2), yaw:+me.yaw.toFixed(3), mv: moving?1:0 });
       if(now - lastPingSent > 2000){ lastPingSent = now; send({ t:'ping', c: now }); }
     }
     // remotes interpolation
@@ -1825,8 +1874,9 @@ function loop(){
       const k = Math.min(1, dt*12);
       r.x += (r.tx - r.x)*k;
       r.z += (r.tz - r.z)*k;
+      r.y += (r.ty - r.y)*k;
       r.yaw = lerpAngle(r.yaw, r.tyaw, k);
-      r.mesh.position.set(r.x, 0, r.z);
+      r.mesh.position.set(r.x, r.y, r.z);
       r.mesh.rotation.y = r.yaw;
       if(r.mv){ r.walkT += dt*10; }
       const legs = r.mesh.userData.legs;
@@ -1844,7 +1894,7 @@ function loop(){
     pickupMeshes.forEach(m => {
       m.userData.spin += dt*2;
       m.rotation.y = m.userData.spin;
-      m.position.y = 1 + Math.sin(m.userData.spin*1.5)*.12;
+      m.position.y = (m.userData.baseY||1) + Math.sin(m.userData.spin*1.5)*.12;
     });
     // armed mines blink
     mineMeshes.forEach(mesh => {
@@ -1853,7 +1903,7 @@ function loop(){
     });
     gunKick = Math.max(0, gunKick - dt*8);
   }
-  camera.position.set(me.x, 1.6 + Math.sin(me.bob)*.045, me.z);
+  camera.position.set(me.x, me.y + EYE_H + Math.sin(me.bob)*.045, me.z);
   camera.rotation.order = 'YXZ';
   camera.rotation.y = me.yaw;
   camera.rotation.x = me.pitch + gunKick*0.03;

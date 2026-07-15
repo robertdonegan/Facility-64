@@ -261,10 +261,11 @@ class Room {
 
   spawnPlayer(p, spot) {
     const [x, z] = spot || this.farSpawn();
-    p.x = x; p.z = z; p.yaw = Math.atan2(-x, -z);
+    const y = this.level.topAt(x, z);   // spawn on whatever surface is here (usually the floor)
+    p.x = x; p.z = z; p.y = y; p.yaw = Math.atan2(-x, -z);
     p.hp = 100; p.armor = 0; p.alive = true; p.weapon = 'pistol';
     p.owned = { chop: true, pistol: true, rifle: false, shotgun: false, sniper: false, launcher: false, mines: false };
-    this.broadcast({ t: 'respawn', id: p.id, x, z, yaw: p.yaw });
+    this.broadcast({ t: 'respawn', id: p.id, x, y, z, yaw: p.yaw });
   }
 
   /* -------- proximity mines -------- */
@@ -278,9 +279,10 @@ class Room {
     if ((x - player.x) ** 2 + (z - player.z) ** 2 > 4) return;
     if (this.mines.length >= MAX_MINES_PER_ROOM) return;
     player.lastMine = nowMs;
-    const mine = { id: this.nextMineId++, ownerId: player.id, x, z, armedAt: nowMs + MINE_ARM_MS };
+    const y = player.y || 0;
+    const mine = { id: this.nextMineId++, ownerId: player.id, x, z, y, armedAt: nowMs + MINE_ARM_MS };
     this.mines.push(mine);
-    this.broadcast({ t: 'mineArm', id: mine.id, x, z, owner: player.id });
+    this.broadcast({ t: 'mineArm', id: mine.id, x, z, y, owner: player.id });
   }
 
   tickMines(nowMs) {
@@ -291,15 +293,16 @@ class Room {
       let triggered = false;
       for (const p of this.players.values()) {
         if (!p.alive || p.id === mn.ownerId) continue;
+        if (Math.abs((p.y || 0) - mn.y) > 1.6) continue;   // different storey — safe
         if ((p.x - mn.x) ** 2 + (p.z - mn.z) ** 2 < MINE_TRIGGER_R * MINE_TRIGGER_R) { triggered = true; break; }
       }
       if (!triggered) continue;
       this.mines.splice(i, 1);
-      this.broadcast({ t: 'mineBlast', id: mn.id, x: mn.x, z: mn.z });
+      this.broadcast({ t: 'mineBlast', id: mn.id, x: mn.x, z: mn.z, y: mn.y });
       const owner = this.players.get(mn.ownerId);
       for (const p of this.players.values()) {
         if (!p.alive) continue;
-        const dist = Math.hypot(p.x - mn.x, p.z - mn.z);
+        const dist = Math.hypot(p.x - mn.x, (p.y || 0) - mn.y, p.z - mn.z);
         if (dist > MINE_BLAST_R) continue;
         const dmg = MINE_DMG * (1 - dist / MINE_BLAST_R);
         if (dmg > 3) this.applyDamage(p, owner || p, dmg);
@@ -316,19 +319,20 @@ class Room {
     if (len < 1e-6) return null;
     dx /= len; dy /= len; dz /= len;
 
-    // nearest target whose chest cylinder the ray passes through
+    // nearest target whose chest cylinder the ray passes through (full 3D now)
+    const ey = (shooter.y || 0) + EYE_Y;
     let hit = null, hitD = Infinity;
     for (const t of this.players.values()) {
       if (t === shooter || !t.alive) continue;
-      const tox = t.x - shooter.x, toy = CHEST_Y - EYE_Y, toz = t.z - shooter.z;
+      const tox = t.x - shooter.x, toy = ((t.y || 0) + CHEST_Y) - ey, toz = t.z - shooter.z;
       const proj = tox * dx + toy * dy + toz * dz;
       if (proj < 0.5 || proj > maxRange) continue;
       const cx = dx * proj - tox, cy = dy * proj - toy, cz = dz * proj - toz;
       if (Math.hypot(cx, cy, cz) < HIT_RADIUS && proj < hitD) { hit = t; hitD = proj; }
     }
     if (!hit) return null;
-    // occlusion against the shared level geometry
-    if (this.level.segBlocked(shooter.x, shooter.z, hit.x, hit.z)) return null;
+    // occlusion in 3D — platforms only block rays that cross their vertical span
+    if (this.level.seg3DBlocked(shooter.x, ey, shooter.z, hit.x, (hit.y || 0) + CHEST_Y, hit.z)) return null;
     return hit;
   }
 
@@ -372,7 +376,7 @@ class Room {
     this.broadcast({ t: 'shot', id: shooter.id, w: 'launcher' }, shooter.id);
     this.nades.push({
       id: this.nextNadeId++, ownerId: shooter.id,
-      x: shooter.x + dx * 0.6, y: EYE_Y - 0.2, z: shooter.z + dz * 0.6,
+      x: shooter.x + dx * 0.6, y: (shooter.y || 0) + EYE_Y - 0.2, z: shooter.z + dz * 0.6,
       vx: dx * NADE_SPEED, vy: dy * NADE_SPEED + 2.5, vz: dz * NADE_SPEED,
       explodeAt: nowMs + NADE_FUSE_MS,
     });
@@ -382,20 +386,21 @@ class Room {
     for (let i = this.nades.length - 1; i >= 0; i--) {
       const n = this.nades[i];
       n.vy -= NADE_GRAVITY * dt;
-      // axis-separated moves so wall hits reflect the right component
+      // axis-separated moves so wall hits reflect the right component (at flight height)
       const nx = n.x + n.vx * dt;
-      if (this.level.collides(nx, n.z, 0.25)) n.vx *= -0.45; else n.x = nx;
+      if (this.level.collides3D(nx, n.z, 0.25, n.y)) n.vx *= -0.45; else n.x = nx;
       const nz = n.z + n.vz * dt;
-      if (this.level.collides(n.x, nz, 0.25)) n.vz *= -0.45; else n.z = nz;
+      if (this.level.collides3D(n.x, nz, 0.25, n.y)) n.vz *= -0.45; else n.z = nz;
       n.y += n.vy * dt;
-      if (n.y < 0.15 && n.vy < 0) { n.y = 0.15; n.vy *= -0.45; n.vx *= 0.75; n.vz *= 0.75; }
+      const floor = this.level.groundAt(n.x, n.z, n.y) + 0.15;   // bounce off whatever surface is under it
+      if (n.y < floor && n.vy < 0) { n.y = floor; n.vy *= -0.45; n.vx *= 0.75; n.vz *= 0.75; }
       if (nowMs < n.explodeAt) continue;
       this.nades.splice(i, 1);
-      this.broadcast({ t: 'nadeBlast', id: n.id, x: +n.x.toFixed(2), z: +n.z.toFixed(2) });
+      this.broadcast({ t: 'nadeBlast', id: n.id, x: +n.x.toFixed(2), y: +n.y.toFixed(2), z: +n.z.toFixed(2) });
       const owner = this.players.get(n.ownerId);
       for (const p of this.players.values()) {
         if (!p.alive) continue;
-        const dist = Math.hypot(p.x - n.x, p.z - n.z);
+        const dist = Math.hypot(p.x - n.x, (p.y || 0) - n.y, p.z - n.z);
         if (dist > NADE_BLAST_R) continue;
         const dmg = NADE_DMG * (1 - dist / NADE_BLAST_R);
         if (dmg > 3) this.applyDamage(p, owner || p, dmg);
@@ -744,26 +749,32 @@ class Room {
         mx += -nz * strafe * 0.8; mz += nx * strafe * 0.8;
       }
       const ml = Math.hypot(mx, mz);
+      const fy = b.y || 0;
       if (ml > 1e-6) {
         const step = b.botSpeed * dt;
         const sx = b.x + (mx / ml) * step;
-        if (!this.level.collides(sx, b.z, 0.55)) b.x = sx;
+        if (!this.level.collides3D(sx, b.z, 0.55, fy)) b.x = sx;
         const sz = b.z + (mz / ml) * step;
-        if (!this.level.collides(b.x, sz, 0.55)) b.z = sz;
+        if (!this.level.collides3D(b.x, sz, 0.55, fy)) b.z = sz;
         b.moving = true;
       } else b.moving = false;
+      // walk up ramps / low steps, drop off ledges (no jumping)
+      b.y = this.level.groundAt(b.x, b.z, fy);
       b.yaw = Math.atan2(dx, dz);
 
+      const dyTgt = (target.y || 0) - (b.y || 0);   // height gap to the target
       if (b.botMelee) {
-        if (dist < 2 && nowMs - b.lastShot >= b.botRof) {
+        if (dist < 2 && Math.abs(dyTgt) < 1.6 && nowMs - b.lastShot >= b.botRof) {
           b.lastShot = nowMs;
           this.applyDamage(target, b, b.botDmg);
         }
-      } else if (nowMs - b.lastShot >= b.botRof && dist < 42 && !this.level.segBlocked(b.x, b.z, target.x, target.z)) {
+      } else if (nowMs - b.lastShot >= b.botRof && dist < 42 && !this.level.seg3DBlocked(b.x, (b.y||0)+EYE_Y, b.z, target.x, (target.y||0)+CHEST_Y, target.z)) {
         b.lastShot = nowMs;
         this.broadcast({ t: 'shot', id: b.id, w: 'pistol' });
         const err = b.botAimErr;
-        const d = [nx + (Math.random() - .5) * err, (CHEST_Y - EYE_Y) / dist + (Math.random() - .5) * err, nz + (Math.random() - .5) * err];
+        // aim toward the real height difference (rise/run), not a flat lane
+        const aimY = (dyTgt + (CHEST_Y - EYE_Y)) / dist;
+        const d = [nx + (Math.random() - .5) * err, aimY + (Math.random() - .5) * err, nz + (Math.random() - .5) * err];
         const hit = this.raycastRay(b, d, MAX_RANGE);
         if (hit && !hit.bot) this.applyDamage(hit, b, b.botDmg || BOT_DMG);
       }
@@ -857,6 +868,7 @@ class Room {
       players: [...this.players.values()].map(p => ({
         id: p.id, name: p.name, color: p.color,
         x: +p.x.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(3),
+        ...(p.y ? { y: +p.y.toFixed(2) } : {}),
         hp: Math.round(p.hp), armor: Math.round(p.armor),
         score: p.score, streak: p.streak || 0, alive: p.alive, mv: p.moving ? 1 : 0,
         weapon: p.weapon,
@@ -925,6 +937,12 @@ wss.on('connection', (ws) => {
         const A = room.level.ARENA;
         me.x = Math.max(-A, Math.min(A, x));
         me.z = Math.max(-A, Math.min(A, z));
+        // clamp height to this column's surface plus a jump's worth of air, so a
+        // client can't float over open ground or reach nests it hasn't climbed to
+        if (isFinite(+m.y)) {
+          const surf = room.level.topAt(me.x, me.z);
+          me.y = Math.max(0, Math.min(surf + 2.4, +m.y));
+        }
         me.yaw = yaw;
         me.moving = !!m.mv;
         break;
